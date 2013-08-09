@@ -1,6 +1,8 @@
 package net.virtualvoid.program
 
 object Interpreter {
+
+  def apply(p: Program): Long ⇒ Long = eval(p) _
   def eval(p: Program)(value: Long): Long =
     eval(p.body, p.param, value, Nil)
 
