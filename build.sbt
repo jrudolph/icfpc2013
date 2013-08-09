@@ -8,6 +8,7 @@ libraryDependencies ++= {
     "io.spray" % "spray-client" % sprayV,
     "io.spray" % "spray-can" % sprayV,
     "io.spray" %% "spray-json" % "1.2.5",
+    "org.parboiled" %% "parboiled-scala" % "1.1.5",
     // RUNTIME
     "com.typesafe.akka" %% "akka-slf4j" % akkaV % "runtime",
     "ch.qos.logback" % "logback-classic" % "1.0.0" % "runtime",
