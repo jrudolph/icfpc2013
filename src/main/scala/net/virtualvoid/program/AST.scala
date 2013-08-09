@@ -11,7 +11,9 @@ package net.virtualvoid.program
           op2 ::= "and" | "or" | "xor" | "plus"
           id  ::= [a-z][a-z_0-9]*
 */
-case class Program(param: String, body: Expr)
+case class Program(param: String, body: Expr) {
+  override def toString = s"Program <${Printer.print(this)}>"
+}
 object Program {
   implicit def apply(code: String) = Parser(code)
 }
@@ -27,7 +29,7 @@ case class UnaryOpApply(op: UnaryOp, arg: Expr) extends Expr
 case class BinOpApply(op: BinaryOp, arg1: Expr, arg2: Expr) extends Expr
 
 sealed trait UnaryOp {
-  val name = getClass.getSimpleName.toLowerCase
+  val name = getClass.getSimpleName.toLowerCase.dropRight(1)
 }
 case object Not extends UnaryOp
 case object Shl1 extends UnaryOp
@@ -36,7 +38,7 @@ case object Shr4 extends UnaryOp
 case object Shr16 extends UnaryOp
 
 sealed trait BinaryOp {
-  val name = getClass.getSimpleName.toLowerCase
+  val name = getClass.getSimpleName.toLowerCase.dropRight(1)
 }
 case object And extends BinaryOp
 case object Or extends BinaryOp
