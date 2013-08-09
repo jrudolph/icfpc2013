@@ -9,6 +9,10 @@ case class Example(input: Long, output: Long) {
 }
 
 object Synthesis {
+  case class NumSetup(remaining: Int, vars: Seq[Ident], inFold: Boolean, alreadyFold: Boolean) {
+    def +(i: Int) = copy(remaining = remaining + i)
+    def -(i: Int) = this + (-i)
+  }
   case class SynthesisResult(result: Expr, remainingSize: Int)
   trait Context {
     def vars: Seq[Ident]
@@ -93,17 +97,23 @@ object Synthesis {
     val numUns = ops.count(unops.contains)
     val numConst = 3
 
-    sealed trait Choice
+    sealed trait Choice {
+      def isFold: Boolean = false
+    }
     case object Const extends Choice
     case object UnOp extends Choice
     case object BinOp extends Choice
     case object If0 extends Choice
-    case object TFold extends Choice
-    case object Fold extends Choice
+    case object TFold extends Choice {
+      override def isFold: Boolean = true
+    }
+    case object Fold extends Choice {
+      override def isFold: Boolean = true
+    }
 
     def containOp(tag: String): Int = if (ops.contains(tag)) 1 else 0
 
-    val choices = Seq(
+    val allChoices = Seq(
       (Const, 3),
       (UnOp, numUns),
       (BinOp, numBins),
@@ -112,52 +122,65 @@ object Synthesis {
       (Fold, containOp("fold"))).filter(_._2 > 0).map(_._1)
     //println(s"The choices are $choices")
 
-    var numsCache = collection.immutable.Map.empty[Int, Seq[(Int, Long)]]
-    def nums(remaining: Int): Seq[(Int, Long)] =
-      if (numsCache.contains(remaining)) numsCache(remaining)
+    case class Result(setup: NumSetup, total: Long)
+
+    def choices(setup: NumSetup): Seq[Choice] = if (setup.alreadyFold) allChoices.filterNot(_.isFold) else allChoices
+
+    var numsCache = collection.immutable.Map.empty[NumSetup, Seq[Result]]
+    def nums(setup: NumSetup): Seq[Result] = {
+      if (numsCache.contains(setup)) numsCache(setup)
       else {
-        val res = numsCalc(remaining)
-        numsCache = numsCache + (remaining -> res)
+        val res = numsCalc(setup)
+        numsCache = numsCache + (setup -> res)
         res
       }
-    def numsCalc(remaining: Int): Seq[(Int, Long)] =
-      choices.flatMap(numAt(remaining)).groupBy(_._1).map {
-        case (remaining, entries) ⇒ (remaining, entries.map(_._2).sum)
+    }
+    def numsCalc(setup: NumSetup): Seq[Result] =
+      choices(setup).flatMap(numAt(setup)).groupBy(_.setup).map {
+        case (setup, entries) ⇒ Result(setup, entries.map(_.total).sum)
       }.toSeq
-    def numAt(remaining: Int)(choice: Choice): Seq[(Int, Long)] = choice match {
-      case Const ⇒ if (remaining >= 1) Seq((remaining - 1, 3)) else Nil
+    def numAt(setup: NumSetup)(choice: Choice): Seq[Result] = choice match {
+      case Const ⇒ if (setup.remaining >= 1) Seq(Result(setup - 1, 3 + (if (setup.inFold) 2 else 0))) else Nil
       case UnOp ⇒
-        if (remaining >= 2)
+        if (setup.remaining >= 2)
           for {
-            (rem, nums) ← nums(remaining - 1)
-          } yield (rem, nums * numUns)
+            Result(s1, nums) ← nums(setup - 1)
+          } yield Result(s1, nums * numUns)
         else Nil
       case BinOp ⇒
-        if (remaining >= 3)
+        if (setup.remaining >= 3)
           for {
-            (rem1, nums1) ← nums(remaining - 2)
-            (rem2, nums2) ← nums(rem1 + 1)
-          } yield (rem2, nums1 * nums2 * numBins)
+            Result(s1, nums1) ← nums(setup - 2)
+            Result(s2, nums2) ← nums(s1 + 1)
+          } yield Result(s2, nums1 * nums2 * numBins)
         else Nil
       case If0 ⇒
-        if (remaining >= 4)
+        if (setup.remaining >= 4)
           for {
-            (rem1, nums1) ← nums(remaining - 3)
-            (rem2, nums2) ← nums(rem1 + 1)
-            (rem3, nums3) ← nums(rem2 + 1)
-          } yield (rem3, nums1 * nums2 * nums3)
+            Result(s1, nums1) ← nums(setup - 3)
+            Result(s2, nums2) ← nums(s1 + 1)
+            Result(s3, nums3) ← nums(s2 + 1)
+          } yield Result(s3, nums1 * nums2 * nums3)
         else Nil
-      /*case TFold ⇒
-        if (remaining > 4)
+      case TFold ⇒
+        if (setup.remaining >= 4)
           for {
-            (rem1, nums1) ← nums(remaining - 3)
-            (rem2, nums2) ← nums(rem1 + 1)
-          } yield (rem2, nums1 * nums2)
-        else Nil*/
+            Result(NumSetup(r1, _, _, _), nums1) ← nums(NumSetup(setup.remaining - 3, Nil, false, true))
+            Result(NumSetup(r2, _, _, _), nums2) ← nums(NumSetup(r1 + 1, Nil, true, true))
+          } yield Result(NumSetup(r2, Nil, false, true), nums1 * nums2)
+        else Nil
+      case Fold ⇒
+        if (setup.remaining >= 5)
+          for {
+            Result(NumSetup(r1, _, _, _), nums1) ← nums(NumSetup(setup.remaining - 4, Nil, false, true))
+            Result(NumSetup(r2, _, _, _), nums2) ← nums(NumSetup(r1 + 1, Nil, false, true))
+            Result(NumSetup(r3, _, _, _), nums3) ← nums(NumSetup(r2 + 1, Nil, true, true))
+          } yield Result(NumSetup(r3, Nil, false, true), nums1 * nums2 * nums3)
+        else Nil
     }
-    val allRes = nums(targetSize - 1)
+    val allRes = nums(NumSetup(targetSize - 1, Nil, false, false))
     //println(allRes)
-    allRes.find(_._1 == 0).map(_._2).getOrElse(0L)
+    allRes.find(_.setup.remaining == 0).map(_.total).getOrElse(0L)
     //val x = Ident("x")
     //val ctx = contextFor(synthesizersForOperators(ops), targetSize, Seq(x))
     //ctx.numSolutions(1, targetSize - 1)
@@ -173,8 +196,14 @@ object Synthesis {
   }
 
   def findMatching(examples: Seq[Example], targetSize: Int, ops: String*): Option[Program] = {
-    def createFinder = new Finder(examples, targetSize, ops, synthesize(targetSize, ops: _*).asInstanceOf[Stream[Program]])
-    createFinder.find()
+    def createFinder() = new Finder(examples, targetSize, ops, synthesize(targetSize, ops: _*).asInstanceOf[Stream[Program]])
+    val finder = createFinder()
+    val start = System.nanoTime()
+    val result = finder.find()
+    val end = System.nanoTime()
+    val rate = finder.tried.toDouble * 1000000000d / (end - start)
+    println(f"Speed: $rate%8f t / s")
+    result
   }
 
   class Finder(examples: Seq[Example], targetSize: Int, ops: Seq[String], var s: Stream[Program]) {
