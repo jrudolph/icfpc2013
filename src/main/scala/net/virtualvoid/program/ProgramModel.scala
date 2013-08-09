@@ -17,8 +17,8 @@ case object Zero extends Expr
 case object One extends Expr
 case class Ident(name: String) extends Expr
 case class If0(target: Expr, thenBody: Expr, elseBody: Expr) extends Expr
-case class Lambda2(param1: String, param2: String, body: Expr)
-case class Fold(source: Expr, init: Expr, lambda: Lambda2) extends Expr
+//case class Lambda2(param1: String, param2: String, body: Expr)
+case class Fold(source: Expr, init: Expr, param1: String, param2: String, body: Expr) extends Expr
 
 case class UnaryOpApply(op: UnaryOp, arg: Expr) extends Expr
 case class BinOpApply(op: BinaryOp, arg1: Expr, arg2: Expr) extends Expr
