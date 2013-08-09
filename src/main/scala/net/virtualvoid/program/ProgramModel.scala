@@ -35,3 +35,18 @@ case object And extends BinaryOp
 case object Or extends BinaryOp
 case object Xor extends BinaryOp
 case object Plus extends BinaryOp
+
+/*
+Match template:
+
+e match {
+  case Zero =>
+  case One =>
+  case Ident(name) =>
+  case If0(target, thenBody, elseBody) =>
+  case Fold(source, init, param1, param2, body) =>
+  case UnaryOpApply(op, arg) =>
+  case BinOpApply(op, arg1, arg2) =>
+}
+
+*/
