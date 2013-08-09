@@ -9,52 +9,78 @@ case class Example(input: Long, output: Long) {
 }
 
 object Synthesis {
+  val x = Ident("x")
+  val y = Ident("y")
+  val z = Ident("z")
+  val xs = Seq(x)
+  val xyz = Seq(x, y, z)
+
   case class NumSetup(remaining: Int, vars: Seq[Ident], inFold: Boolean, alreadyFold: Boolean) {
     def +(i: Int) = copy(remaining = remaining + i)
     def -(i: Int) = this + (-i)
   }
-  case class SynthesisResult(result: Expr, remainingSize: Int)
+  case class SynthesisResult(result: Expr, setup: NumSetup)
   trait Context {
-    def vars: Seq[Ident]
-    def synthesize(remainingSize: Int): Seq[SynthesisResult]
+    def synthesize(setup: NumSetup): Seq[SynthesisResult]
   }
   abstract class Synthesizer(val minSize: Int, val maxSize: Int) {
-    def generate(ctx: Context, remainingSize: Int): Seq[SynthesisResult]
+    def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult]
 
-    def canGenerate(remainingSize: Int): Boolean = remainingSize >= minSize //&& remainingSize <= maxSize
+    def canGenerate(setup: NumSetup): Boolean = setup.remaining >= minSize
   }
 
   object ZeroSynthesizer extends Synthesizer(1, 1) {
-    def generate(ctx: Context, remainingSize: Int): Seq[SynthesisResult] = Seq(SynthesisResult(Zero, remainingSize - 1))
+    def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult] = Seq(SynthesisResult(Zero, setup - 1))
   }
   object OneSynthesizer extends Synthesizer(1, 1) {
-    def generate(ctx: Context, remainingSize: Int): Seq[SynthesisResult] = Seq(SynthesisResult(One, remainingSize - 1))
+    def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult] = Seq(SynthesisResult(One, setup - 1))
   }
   object IdentSynthesizer extends Synthesizer(1, 1) {
-    def generate(ctx: Context, remainingSize: Int): Seq[SynthesisResult] = ctx.vars.map(x ⇒ SynthesisResult(x, remainingSize - 1))
+    def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult] = setup.vars.map(x ⇒ SynthesisResult(x, setup - 1))
   }
   def unOpSynthesizer(unOp: UnaryOp): Synthesizer =
     new Synthesizer(2, Int.MaxValue) {
-      def generate(ctx: Context, remainingSize: Int): Seq[SynthesisResult] =
+      def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult] =
         for {
-          SynthesisResult(arg, rem) ← ctx.synthesize(remainingSize - 1)
-        } yield SynthesisResult(UnaryOpApply(unOp, arg), rem)
+          SynthesisResult(arg, s1) ← ctx.synthesize(setup - 1)
+        } yield SynthesisResult(UnaryOpApply(unOp, arg), s1)
     }
   def binOpSynthesizer(binOp: BinaryOp): Synthesizer =
     new Synthesizer(3, Int.MaxValue) {
-      def generate(ctx: Context, remainingSize: Int): Seq[SynthesisResult] =
+      def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult] =
         for {
-          SynthesisResult(arg1, rem1) ← ctx.synthesize(remainingSize - 1)
-          SynthesisResult(arg2, rem2) ← ctx.synthesize(rem1)
-        } yield SynthesisResult(BinOpApply(binOp, arg1, arg2), rem2)
+          SynthesisResult(arg1, s1) ← ctx.synthesize(setup - 1)
+          SynthesisResult(arg2, s2) ← ctx.synthesize(s1)
+        } yield SynthesisResult(BinOpApply(binOp, arg1, arg2), s2)
     }
   object If0Synthesizer extends Synthesizer(4, Int.MaxValue) {
-    def generate(ctx: Context, remainingSize: Int): Seq[SynthesisResult] =
+    def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult] =
       for {
-        SynthesisResult(arg1, rem1) ← ctx.synthesize(remainingSize - 1)
-        SynthesisResult(arg2, rem2) ← ctx.synthesize(rem1)
-        SynthesisResult(arg3, rem3) ← ctx.synthesize(rem2)
-      } yield SynthesisResult(If0(arg1, arg2, arg3), rem3)
+        SynthesisResult(arg1, s1) ← ctx.synthesize(setup - 1)
+        SynthesisResult(arg2, s2) ← ctx.synthesize(s1)
+        SynthesisResult(arg3, s3) ← ctx.synthesize(s2)
+      } yield SynthesisResult(If0(arg1, arg2, arg3), s3)
+  }
+  object TFoldSynthesizer extends Synthesizer(4, Int.MaxValue) {
+    def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult] =
+      for {
+        SynthesisResult(arg1, s1) ← ctx.synthesize(NumSetup(setup.remaining - 2, xs, false, true))
+        SynthesisResult(arg2, s2) ← ctx.synthesize(NumSetup(s1.remaining, xyz, true, true))
+      } yield SynthesisResult(Fold(arg1, Zero, "y", "z", arg2), NumSetup(s2.remaining, xs, false, true))
+
+    override def canGenerate(setup: NumSetup): Boolean =
+      !setup.alreadyFold && setup.remaining >= 4
+  }
+  object FoldSynthesizer extends Synthesizer(5, Int.MaxValue) {
+    def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult] =
+      for {
+        SynthesisResult(arg1, s1) ← ctx.synthesize(NumSetup(setup.remaining - 3, xs, false, true))
+        SynthesisResult(arg2, s2) ← ctx.synthesize(NumSetup(s1.remaining, xs, false, true))
+        SynthesisResult(arg3, s3) ← ctx.synthesize(NumSetup(s2.remaining, xyz, true, true))
+      } yield SynthesisResult(Fold(arg1, arg2, "y", "z", arg3), NumSetup(s3.remaining, xs, false, true))
+
+    override def canGenerate(setup: NumSetup): Boolean =
+      !setup.alreadyFold && setup.remaining >= 5
   }
 
   def synthesizer(op: String): Synthesizer = op match {
@@ -68,6 +94,8 @@ object Synthesis {
     case "shr1"  ⇒ unOpSynthesizer(Shr1)
     case "shr4"  ⇒ unOpSynthesizer(Shr4)
     case "shr16" ⇒ unOpSynthesizer(Shr16)
+    case "tfold" ⇒ TFoldSynthesizer
+    case "fold"  ⇒ FoldSynthesizer
   }
   val binops = Set("and", "xor", "or", "plus")
   val unops = Set("not", "shl1", "shr1", "shr4", "shr16")
@@ -76,16 +104,14 @@ object Synthesis {
     Seq(ZeroSynthesizer, OneSynthesizer, IdentSynthesizer) ++ ops.map(synthesizer)
 
   def synthesize(synthesizers: Seq[Synthesizer], targetSize: Int): Seq[Program] = {
-    val x = Ident("x")
-    val ctx = contextFor(synthesizers, targetSize, Seq(x))
-    ctx.synthesize(targetSize - 1).map(x ⇒ Program("x", x.result))
+    val ctx = contextFor(synthesizers, targetSize)
+    ctx.synthesize(NumSetup(targetSize - 1, xs, false, false)).map(x ⇒ Program("x", x.result))
   }
-  def contextFor(synthesizers: Seq[Synthesizer], targetSize: Int, _vars: Seq[Ident]): Context = {
+  def contextFor(synthesizers: Seq[Synthesizer], targetSize: Int): Context = {
     lazy val ctx: Context = new Context {
-      val vars: Seq[Ident] = _vars
-      def synthesize(remainingSize: Int): Seq[SynthesisResult] =
-        if (remainingSize == 0) Stream.empty
-        else synthesizers.filter(_.canGenerate(remainingSize)).toStream.flatMap(_.generate(ctx, remainingSize))
+      def synthesize(setup: NumSetup): Seq[SynthesisResult] =
+        if (setup.remaining == 0) Stream.empty
+        else synthesizers.filter(_.canGenerate(setup)).toStream.flatMap(_.generate(ctx, setup))
     }
     ctx
   }
