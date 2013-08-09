@@ -42,9 +42,10 @@ trait BVParserRules extends org.parboiled.scala.Parser {
   lazy val op1: Rule1[UnaryOp] = rule {
     "not" ~ push(Not) |
       "shl1" ~ push(Shl1) |
+      "shr16" ~ push(Shr16) |
       "shr1" ~ push(Shr1) |
-      "shr4" ~ push(Shr4) |
-      "shr16" ~ push(Shr16)
+      "shr4" ~ push(Shr4)
+
   }
   lazy val op2: Rule1[BinaryOp] = rule {
     "and" ~ push(And) |
