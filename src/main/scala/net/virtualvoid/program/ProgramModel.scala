@@ -23,14 +23,18 @@ case class Fold(source: Expr, init: Expr, param1: String, param2: String, body: 
 case class UnaryOpApply(op: UnaryOp, arg: Expr) extends Expr
 case class BinOpApply(op: BinaryOp, arg1: Expr, arg2: Expr) extends Expr
 
-sealed trait UnaryOp
+sealed trait UnaryOp {
+  val name = getClass.getSimpleName.toLowerCase
+}
 case object Not extends UnaryOp
 case object Shl1 extends UnaryOp
 case object Shr1 extends UnaryOp
 case object Shr4 extends UnaryOp
 case object Shr16 extends UnaryOp
 
-sealed trait BinaryOp
+sealed trait BinaryOp {
+  val name = getClass.getSimpleName.toLowerCase
+}
 case object And extends BinaryOp
 case object Or extends BinaryOp
 case object Xor extends BinaryOp
