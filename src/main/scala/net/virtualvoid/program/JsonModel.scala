@@ -1,5 +1,7 @@
 package net.virtualvoid.program
 
+import spray.json.DefaultJsonProtocol
+
 /*
   interface Problem {
     id: string;
@@ -18,7 +20,6 @@ case class Problem(id: String, size: Int, operators: Seq[String], solved: Option
     arguments: string[];
   }
 */
-
 case class EvalRequest(id: Option[String], program: Option[String], arguments: Seq[String])
 
 /*
@@ -28,7 +29,6 @@ case class EvalRequest(id: Option[String], program: Option[String], arguments: S
     message?: string;
   }
    */
-
 case class EvalResponse(status: String, outputs: Option[Seq[String]], message: String)
 
 /*
@@ -37,7 +37,6 @@ case class EvalResponse(status: String, outputs: Option[Seq[String]], message: S
     program: string;
   }
 */
-
 case class Guess(id: String, program: String)
 
 /*
@@ -47,8 +46,7 @@ case class Guess(id: String, program: String)
     message?: string;
     lightning?: bool;
   }
- */
-
+*/
 case class GuessResponse(status: String, values: Option[Seq[String]], message: Option[String], lightning: Option[Boolean])
 
 /*
@@ -57,7 +55,6 @@ case class GuessResponse(status: String, values: Option[Seq[String]], message: O
     operators?: string[];
   }
 */
-
 case class TrainRequest(size: Option[Int], operators: Option[Seq[String]])
 
 /*
@@ -67,7 +64,7 @@ case class TrainRequest(size: Option[Int], operators: Option[Seq[String]])
     size: number;
     operators: string[];
   }
- */
+*/
 case class TrainingProblem(challenge: String, id: String, size: Int, operators: Seq[String])
 
 /*
@@ -91,7 +88,6 @@ case class TrainingProblem(challenge: String, id: String, size: Int, operators: 
     cpuTotalTime:number;
   }
 */
-
 case class Window(resetsIn: Int, amount: Int, limit: Int)
 case class Status(
   easyChairId: Int,
@@ -103,3 +99,15 @@ case class Status(
   requestWindow: Window,
   cpuWindow: Window,
   cpuTotalTime: Int)
+
+object JsonProtocol extends DefaultJsonProtocol {
+  implicit val problemF = jsonFormat5(Problem)
+  implicit val evalRequestF = jsonFormat3(EvalRequest)
+  implicit val evalResponseF = jsonFormat3(EvalResponse)
+  implicit val guessF = jsonFormat2(Guess)
+  implicit val guessResponseF = jsonFormat4(GuessResponse)
+  implicit val trainReqF = jsonFormat2(TrainRequest)
+  implicit val trainProbF = jsonFormat4(TrainingProblem)
+  implicit val windowF = jsonFormat3(Window)
+  implicit val statusF = jsonFormat9(Status)
+}
