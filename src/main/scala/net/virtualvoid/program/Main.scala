@@ -13,8 +13,9 @@ object Main {
   if (!exampleFolder.exists()) exampleFolder.mkdirs()
   val log = new File(logFolder, "all.log")
   val logStream = new FileWriter(log, true)
+  def allProblemLogs = (0 to 1000).map(i ⇒ new File(logFolder, f"problem$i%05d.log"))
   def nextProblemLog() =
-    new FileWriter((0 to 1000).map(i ⇒ new File(logFolder, f"problem$i%05d.log")).find(!_.exists()).get)
+    new FileWriter(allProblemLogs.find(!_.exists()).get)
 
   def problemLog(id: String) =
     new FileWriter(new File(exampleFolder, s"p-$id.log"), true)
@@ -74,21 +75,22 @@ object Main {
     }
   }
 
+  def onFinished(next: Problem, rest: List[Problem])(result: (Seq[Example], GuessResponse)): Unit = result match {
+    case (_, GuessResponse("win", _, _, _)) ⇒ trySeveral(rest)
+    case (exs, GuessResponse("mismatch", Some(Seq(input, output, myOutput)), _, _)) ⇒
+      trySolvingOneProblem(next, exs :+ Example(Client.parseLong(input.drop(2)), Client.parseLong(output.drop(2)))).foreach(onFinished(next, rest))
+  }
+
+  def trySeveral(all: List[Problem]): Unit = all match {
+    case next :: rest ⇒
+      trySolvingOneProblem(next).foreach(onFinished(next, rest))
+    case Nil ⇒ println("Completed all problems!")
+  }
+
   def tryEasiest() = {
     val easiest50 = ProblemRepository.annotated.take(50).map(_._1).toList
 
-    def onFinished(next: Problem, rest: List[Problem])(result: (Seq[Example], GuessResponse)): Unit = result match {
-      case (_, GuessResponse("win", _, _, _)) ⇒ runOne(rest)
-      case (exs, GuessResponse("mismatch", Some(Seq(input, output, myOutput)), _, _)) ⇒
-        trySolvingOneProblem(next, exs :+ Example(Client.parseLong(input.drop(2)), Client.parseLong(output.drop(2)))).foreach(onFinished(next, rest))
-    }
-
-    def runOne(all: List[Problem]): Unit = all match {
-      case next :: rest ⇒
-        trySolvingOneProblem(next).foreach(onFinished(next, rest))
-      case Nil ⇒ println("Completed all problems!")
-    }
-    runOne(easiest50)
+    trySeveral(easiest50)
   }
 
   def renderProblem(p: Problem): String = {
@@ -96,6 +98,7 @@ object Main {
     s"$id $size $solved $timeLeft ${operators.mkString(" ")}"
   }
 
+  def latestFile = allProblemLogs.reverse.dropWhile(!_.exists()).head
   val SomeP = """Some\(([0-9]+)\)""".r
   def loadProblems(): Seq[Problem] = {
     def loadLine(line: String) = {
@@ -112,6 +115,6 @@ object Main {
 
       Problem(id, sizeStr.toInt, ops, solved, timeLeft)
     }
-    Source.fromFile("log/problem00013.log").getLines().toIndexedSeq.map(loadLine)
+    Source.fromFile(latestFile).getLines().toIndexedSeq.map(loadLine)
   }
 }

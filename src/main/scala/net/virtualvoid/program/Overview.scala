@@ -22,7 +22,7 @@ object ProblemRepository {
 
   val problems = allProblems.filter(_.canBeSolved)
   val (withFolds, withoutFolds) = problems.partition(_.hasFold)
-  val annotatedWithOverflowed = withoutFolds.map(annotateDifficulty).sortBy(_._2)
+  val annotatedWithOverflowed = problems.map(annotateDifficulty).sortBy(_._2)
   val annotated = annotatedWithOverflowed.filter(_._2 > 0)
 
   val easierThan10Million = annotated.count(_._2 < 10000000)

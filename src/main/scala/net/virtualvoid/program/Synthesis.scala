@@ -231,6 +231,11 @@ object Synthesis {
     println(f"Speed: $rate%8f t / s")
     result
   }
+  def tryTraining(t: TrainingProblem, num: Int = 10) = {
+    val p = Parser(t.challenge)
+    val exs = genExamples(p, num)
+    findMatching(exs, t.size, t.operators: _*)
+  }
 
   class Finder(examples: Seq[Example], targetSize: Int, ops: Seq[String], var s: Stream[Program]) {
     var tried = 0

@@ -74,7 +74,9 @@ case class TrainRequest(size: Option[Int], operators: Option[Seq[String]])
     operators: string[];
   }
 */
-case class TrainingProblem(challenge: String, id: String, size: Int, operators: Seq[String])
+case class TrainingProblem(challenge: String, id: String, size: Int, operators: Seq[String]) {
+  def problem: Problem = Problem(id, size, operators, None, None)
+}
 
 /*
   interface Status {
