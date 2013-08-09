@@ -17,6 +17,9 @@ libraryDependencies ++= {
   )
 }
 
+initialCommands ~= (_ + "import net.virtualvoid.program._")
+
+
 scalaVersion := "2.10.2"
 
 ScalariformSupport.formatSettings
