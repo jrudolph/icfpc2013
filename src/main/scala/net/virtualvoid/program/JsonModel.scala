@@ -11,7 +11,16 @@ import spray.json.DefaultJsonProtocol
     timeLeft?: number
   }
 */
-case class Problem(id: String, size: Int, operators: Seq[String], solved: Option[Boolean], timeLeft: Option[Int])
+case class Problem(id: String, size: Int, operators: Seq[String], solved: Option[Boolean], timeLeft: Option[Int]) {
+  def numSolutions: Long = Synthesis.numSolutionsNew(size, operators: _*)
+
+  override def toString: String =
+    s"""Problem("$id", $size, Seq(${operators.map("\"" + _ + "\"").mkString(", ")}), $solved, $timeLeft)"""
+
+  def hasFold: Boolean = operators.exists(_.contains("fold"))
+  def isSolved = solved.exists(identity)
+  def canBeSolved: Boolean = !isSolved && timeLeft.forall(_ > 0)
+}
 
 /*
   interface EvalRequest {
@@ -29,7 +38,7 @@ case class EvalRequest(id: Option[String], program: Option[String], arguments: S
     message?: string;
   }
    */
-case class EvalResponse(status: String, outputs: Option[Seq[String]], message: String)
+case class EvalResponse(status: String, outputs: Option[Seq[String]], message: Option[String])
 
 /*
   interface Guess {

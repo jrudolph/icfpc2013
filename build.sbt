@@ -1,3 +1,5 @@
+import AssemblyKeys._ // put this at the top of the file
+
 resolvers += "spray nightlies" at "http://nightlies.spray.io/"
 
 libraryDependencies ++= {
@@ -17,7 +19,7 @@ libraryDependencies ++= {
   )
 }
 
-initialCommands ~= (_ + "import net.virtualvoid.program._")
+initialCommands ~= (_ + "import net.virtualvoid.program._\nimport Client.system.dispatcher")
 
 
 scalaVersion := "2.10.2"
@@ -25,3 +27,5 @@ scalaVersion := "2.10.2"
 ScalariformSupport.formatSettings
 
 Revolver.settings
+
+assemblySettings

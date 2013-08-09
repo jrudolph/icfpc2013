@@ -1,7 +1,7 @@
 package net.virtualvoid.program
 
 object Printer {
-  def print(p: Program): String = s"(lambda (${p.param}) ${print(p.body)}"
+  def print(p: Program): String = s"(lambda (${p.param}) ${print(p.body)})"
   def print(e: Expr): String = e match {
     case Zero                                     ⇒ "0"
     case One                                      ⇒ "1"
