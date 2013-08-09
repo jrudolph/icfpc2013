@@ -74,7 +74,7 @@ object Synthesis {
   object FoldSynthesizer extends Synthesizer(5, Int.MaxValue) {
     def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult] =
       for {
-        SynthesisResult(arg1, s1) ← ctx.synthesize(NumSetup(setup.remaining - 3, xs, false, true))
+        SynthesisResult(arg1, s1) ← ctx.synthesize(NumSetup(setup.remaining - 2, xs, false, true))
         SynthesisResult(arg2, s2) ← ctx.synthesize(NumSetup(s1.remaining, xs, false, true))
         SynthesisResult(arg3, s3) ← ctx.synthesize(NumSetup(s2.remaining, xyz, true, true))
       } yield SynthesisResult(Fold(arg1, arg2, "y", "z", arg3), NumSetup(s3.remaining, xs, false, true))
