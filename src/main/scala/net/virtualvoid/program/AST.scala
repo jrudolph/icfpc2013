@@ -12,6 +12,9 @@ package net.virtualvoid.program
           id  ::= [a-z][a-z_0-9]*
 */
 case class Program(param: String, body: Expr)
+object Program {
+  implicit def apply(code: String) = Parser(code)
+}
 sealed trait Expr
 case object Zero extends Expr
 case object One extends Expr

@@ -17,7 +17,7 @@ object Parser extends org.parboiled.scala.Parser with BVParserRules {
 trait BVParserRules extends org.parboiled.scala.Parser {
   lazy val program: Rule1[Program] = rule {
     parenthized {
-      "lambda" ~ parenthized(identifier)() ~ expression ~~> Program
+      "lambda" ~ parenthized(identifier)() ~ expression ~~> (Program(_, _))
     }()
   }
   lazy val expression: Rule1[Expr] = rule {
