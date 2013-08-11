@@ -15,7 +15,8 @@ libraryDependencies ++= {
     "com.typesafe.akka" %% "akka-slf4j" % akkaV % "runtime",
     "ch.qos.logback" % "logback-classic" % "1.0.0" % "runtime",
     // TEST
-    "org.specs2" %% "specs2" % "1.13" % "test"
+    "org.specs2" %% "specs2" % "1.13" % "test",
+    "org.scalacheck" %% "scalacheck" % "1.10.1" % "test"
   )
 }
 

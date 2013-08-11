@@ -5,23 +5,33 @@ import scala.annotation.tailrec
 import java.util.concurrent.atomic.{ AtomicReference, AtomicBoolean, AtomicLong }
 import scala.collection.TraversableOnce
 import scala.collection.mutable.ArrayBuffer
+import scala.concurrent.duration.Deadline
+import scala.concurrent.duration._
 
 sealed trait Example {
   def matchesProgram(program: Program): Boolean
   def input: Long
+
+  def not: Example
 }
 
 case class PositiveExample(input: Long, output: Long) extends Example {
   def matchesProgram(program: Program): Boolean =
     Interpreter.eval(program)(input) == output
+
+  def not: Example = NegativeExample(input, output)
 }
 case class NegativeExample(input: Long, output: Long) extends Example {
   def matchesProgram(program: Program): Boolean =
     Interpreter.eval(program)(input) != output
+
+  def not: Example = PositiveExample(input, output)
 }
 case class CalculatedExample(input: Long, condition: Long ⇒ Boolean) extends Example {
   def matchesProgram(program: Program): Boolean =
     condition(Interpreter.eval(program)(input))
+
+  def not: Example = CalculatedExample(input, v ⇒ !condition(v))
 }
 
 object Synthesis {
@@ -30,6 +40,7 @@ object Synthesis {
   val z = Ident("z")
   val xs = singleColl(x)
   val xyz = many(x, y, z)
+  val xy = many(x, y)
 
   /*type Coll[T] = TraversableOnce[T]
   def emptyColl[T]: Coll[T] = Traversable.empty
@@ -106,8 +117,8 @@ object Synthesis {
     def generate(ctx: Context, setup: NumSetup, f: SynthesisResult ⇒ Unit): Unit =
       ctx.synthesize(NumSetup(setup.remaining - 2, xs, false, true)) {
         case SynthesisResult(arg1, s1) ⇒
-          ctx.synthesize(NumSetup(s1.remaining, xyz, true, true)) {
-            case SynthesisResult(arg2, s2) ⇒ f(SynthesisResult(Fold(arg1, Zero, "y", "z", arg2), NumSetup(s2.remaining, xs, false, true)))
+          ctx.synthesize(NumSetup(s1.remaining, xy, true, true)) {
+            case SynthesisResult(arg2, s2) ⇒ f(SynthesisResult(Fold(arg1, Zero, "x", "y", arg2), NumSetup(s2.remaining, xs, false, true)))
           }
       }
 
@@ -160,7 +171,7 @@ object Synthesis {
     lazy val ctx: Context = new Context {
       def synthesize(setup: NumSetup)(f: SynthesisResult ⇒ Unit): Unit =
         if (setup.remaining > 0) {
-          if (setup.depth < 0) synths.filter(_.canGenerate(setup)).par.foreach(_.generate(ctx, setup, f))
+          if (setup.depth < 2) synths.filter(_.canGenerate(setup)).par.foreach(_.generate(ctx, setup, f))
           else synths.filter(_.canGenerate(setup)).foreach(_.generate(ctx, setup, f))
         }
     }
@@ -170,11 +181,23 @@ object Synthesis {
   def synthesize(targetSize: Int, ops: String*)(f: Program ⇒ Unit): Unit = synthesize(synthesizersForOperators(ops), targetSize, f)
 
   def findMatching(problem: Problem, examples: Seq[Example]): Option[Program] = {
-    if (problem.isBonus) findMatchingBonus(examples, problem.size, problem.operators: _*)
-    else findMatching(examples, problem.size, problem.operators: _*)
+    if (problem.isBonus)
+      findMatching(examples, 5, problem.operators.filterNot(bonusMetaOps.contains): _*) orElse
+        findMatching(examples, 6, problem.operators.filterNot(bonusMetaOps.contains): _*) orElse
+        findMatchingBonus(examples, problem.size, problem.operators, bonusSettings(problem.size))
+    else
+      findMatching(examples, 5, problem.operators: _*) orElse
+        findMatching(examples, 8, problem.operators: _*) orElse (
+          findMatching(examples, 10, problem.operators.filterNot(bonusMetaOps.contains): _*))
+    //.orElse(
+    //findMatchingBonus(examples, problem.size, problem.operators, settingsForTotal(problem.size)))
+    //findMatching(examples, problem.size, problem.operators: _*)
   }
 
   def findMatching(examples: Seq[Example], targetSize: Int, ops: String*): Option[Program] = {
+    val start = System.nanoTime()
+    val deadline = Deadline.now + 8.seconds
+
     val tried = new AtomicLong()
     @volatile var res: Option[Program] = None
     @volatile var found = false
@@ -182,18 +205,17 @@ object Synthesis {
     def inner(): Option[Program] = {
       synthesize(targetSize, ops: _*) { candidate ⇒
         if (found) return res
-        if (tried.incrementAndGet() % 100000 == 0) println(s"Now at $tried")
+        //if (tried.incrementAndGet() % 100000 == 0) println(s"Now at $tried")
         if (examples.forall(_.matchesProgram(candidate))) {
           //println(s"Found $candidate")
           res = Some(candidate)
           found = true
           return Some(candidate)
-        }
+        } else if (deadline.isOverdue()) return None
       }
       res
     }
 
-    val start = System.nanoTime()
     val result = inner()
     val end = System.nanoTime()
     val rate = tried.get.toDouble * 1000000000d / (end - start)
@@ -201,7 +223,59 @@ object Synthesis {
     //println(f"Speed: $rate%8f t / s, total searched ${tried.get}")
     result
   }
-  def findMatchingBonus(examples: Seq[Example], targetSize: Int, ops: String*): Option[Program] = {
+  /*def tryBonusAgain(examples: Seq[Example], newExample: Example, lastResult: Program, targetSize: Int, ops: Seq[String]): Option[Program] = {
+
+  }*/
+  val smallBonusConfigs =
+    Seq(
+      (7, 7),
+      (6, 8),
+      (7, 5),
+      (5, 7),
+      (9, 9),
+      (9, 8),
+      (8, 9),
+      (7, 9),
+      (7, 8),
+      (8, 7),
+      (8, 6),
+      (7, 6),
+      (8, 8),
+      (6, 7),
+      (6, 6),
+      (5, 6),
+      (6, 5),
+      (5, 5),
+      (9, 7))
+
+  case class Settings(configs: Seq[(Int, Int)], offset: Int, exampleFunc: Long ⇒ Example, programCons: (Expr, Expr, Expr) ⇒ Program)
+  def bonusSettings(size: Int) = Settings(
+    configs = allConfigsForTotal(size - 4),
+    offset = 4,
+    exampleFunc = input ⇒ CalculatedExample(input, v ⇒ (v & 1L) == 0),
+    programCons = (cond, thenB, elseB) ⇒ Program("x", If0(And(One, cond), thenB, elseB)))
+
+  def allConfigsForTotal(rem: Int): Seq[(Int, Int)] = {
+    def get(rem: Int): Seq[Int] = 1 to rem
+    (for {
+      a ← get(rem)
+      b ← get(rem - a - 1) if a < 8 && b < 8
+      sum = a + b
+      if rem - sum < 8
+    } yield (a, b)).sortBy(a ⇒ -(a._1 + a._2)).filter(a ⇒ a._1 + a._2 >= 4)
+  }
+
+  def settingsForTotal(size: Int) = Settings(
+    configs = allConfigsForTotal(size - 2),
+    offset = 2,
+    exampleFunc = input ⇒ CalculatedExample(input, _ == 0),
+    programCons = (cond, thenB, elseB) ⇒ Program("x", If0(cond, thenB, elseB)))
+
+  def findMatchingBonus(examples: Seq[Example], targetSize: Int, ops: Seq[String], settings: Settings = bonusSettings(25)): Option[Program] = {
+    val deadline = Deadline.now + 6.seconds
+    import settings._
+    if (examples.size > 7) None
+
     val cleanOps = bonusCleanOps(ops)
     val allExamplesSet = examples.toSet
 
@@ -222,7 +296,8 @@ object Synthesis {
     }
 
     def tryWithConfig(conditionSize: Int, firstSize: Int): Option[Program] = {
-      if (4 + conditionSize + firstSize + 5 <= targetSize) {
+      if (deadline.isOverdue()) None
+      else if (offset + conditionSize + firstSize <= targetSize) {
         case class Partitioning(first: Expr, second: Expr, conditionedExamples: Seq[Example])
 
         def findPartitioning(firstExamples: Set[Example]): Option[Partitioning] = {
@@ -232,8 +307,8 @@ object Synthesis {
               val secondExamples = allExamplesSet -- firstExamples
               findMatching(secondExamples.toSeq, secondSize + 1, cleanOps: _*).map {
                 case Program(_, secondPart) ⇒
-                  val trueExamples = firstExamples.map(e ⇒ CalculatedExample(e.input, v ⇒ (v & 1L) == 0))
-                  val falseExamples = secondExamples.map(e ⇒ CalculatedExample(e.input, v ⇒ (v & 1L) != 0))
+                  val trueExamples = firstExamples.map(e ⇒ exampleFunc(e.input))
+                  val falseExamples = secondExamples.map(e ⇒ exampleFunc(e.input).not)
                   val allExamples = trueExamples ++ falseExamples
 
                   Partitioning(firstPart, secondPart, allExamples.toSeq)
@@ -245,7 +320,7 @@ object Synthesis {
             case Program(_, condition) ⇒
               println(s"Found condition: $condition")
 
-              val result = Program("x", If0(And(One, condition), part.first, part.second))
+              val result = programCons(condition, part.first, part.second)
               println(s"Full program is: $result")
               require(examples.forall(_.matchesProgram(result)),
                 "Not all programs matched. Failure at " + {
@@ -256,7 +331,9 @@ object Synthesis {
               result
           }
         }
-        examples.toSet.subsets.toStream
+        examples.toSet.subsets //.toStream
+          .toSeq
+          .par
           .flatMap(findPartitioning)
           .flatMap(findCondition)
           .headOption
@@ -296,15 +373,32 @@ object Synthesis {
       } else None
     }
 
-    val configs =
-      if (targetSize >= 25)
+    //val configs =
+    /*if (targetSize >= 25)
         Seq(
-          (7, 7), (7, 5), (5, 7))
-      else Seq(
+          (7, 7), (7, 5), (5, 7), (6, 7), (7, 6), (8, 6), (6, 8), (6, 6))
+      else if (targetSize == 19) Seq(
+        (5, 5),
         (5, 7),
         (7, 5),
-        (5, 5),
         (7, 7))
+
+        17 =
+        7 7 3
+        5 5 7
+        4 6 7
+        6 4 7
+        5 6 6
+        6 5 6
+        4 7 6
+        7 4 6
+        7 5 5
+        6 6 5
+        5 7 5
+        8 4 5
+
+
+      else */
 
     configs.foreach { c ⇒
       println(s"Now trying config $c")
@@ -414,7 +508,7 @@ object Synthesis {
             Result(s1, nums1) ← nums(setup - 3)
             Result(s2, nums2) ← nums(s1 + 1)
             Result(s3, nums3) ← nums(s2 + 1)
-          } yield Result(s3, nums1 * nums2 * nums3)
+          } yield Result(s3, nums1 * Math.max(nums2, nums3))
         else Nil
       case TFold ⇒
         if (setup.remaining >= 4)
@@ -447,7 +541,10 @@ object Synthesis {
     val e = Interpreter(p)
     testValues(num).map(x ⇒ PositiveExample(x, e(x)))
   }
-  def testValues(num: Int = 10) = Seq.fill(num)(ThreadLocalRandom.current().nextLong()) ++ Seq(0L, -1L, 0x1122334455667788L)
+  def testValues(num: Int = 10) = {
+    require(num >= 2)
+    Seq.fill(num - 2)(ThreadLocalRandom.current().nextLong()) ++ Seq(-1L, 0x1122334455667788L)
+  }
 
   def analyseBonus(p: Program) = p.body match {
     case If0(BinOpApply(And, x, One), thenB, elseB) ⇒ (Metadata.size(p), Metadata.size(x), Metadata.size(thenB), Metadata.size(elseB))
@@ -469,7 +566,7 @@ object Synthesis {
 
     poss.map(numSolutionsForCombi).sum
   }
-  val bonusMetaOps = Set("bonus", "if0")
+  val bonusMetaOps = Set("bonus", "if0", "fold")
   def bonusCleanOps(ops: Seq[String]): Seq[String] =
     ops.filterNot(bonusMetaOps.contains)
 }

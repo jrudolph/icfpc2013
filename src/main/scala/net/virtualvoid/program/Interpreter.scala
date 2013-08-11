@@ -25,7 +25,8 @@ object Interpreter {
             (sourceV & mask) >>> shift
           }
         bytes.foldLeft(initV) { (run, byte) ⇒
-          eval(body, mainParam, mainVal, Seq((param1, byte), (param2, run)))
+          val main = if (param1 == mainParam) byte else mainVal // allow shadowing in TFold
+          eval(body, mainParam, main, Seq((param1, byte), (param2, run)))
         }
 
       case UnaryOpApply(op, arg) ⇒

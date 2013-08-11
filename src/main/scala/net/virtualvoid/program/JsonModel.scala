@@ -82,6 +82,7 @@ case class TrainRequest(size: Option[Int], operators: Option[Seq[String]])
 */
 case class TrainingProblem(challenge: String, id: String, size: Int, operators: Seq[String]) {
   def problem: Problem = Problem(id, size, operators, None, None)
+  override def toString = s"""TrainingProblem(\"$challenge\", \"$id\", $size, Seq(${operators.map("\"" + _ + "\"").mkString(", ")}))"""
 }
 
 /*

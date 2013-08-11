@@ -1,6 +1,6 @@
 package net.virtualvoid.program
 
-import akka.actor.{ Props, Actor, ActorSystem }
+import akka.actor.{ ActorRef, Props, Actor, ActorSystem }
 import akka.pattern.ask
 import akka.io.IO
 import scala.concurrent.duration._
@@ -24,20 +24,30 @@ object Client {
   val hostConnectorInfo = Await.result((IO(Http) ? HostConnectorSetup("icfpc2013.cloudapp.net")).mapTo[HostConnectorInfo], 1.second)
 
   class RateLimitedSender extends Actor {
-    var nextSend: Deadline = Deadline.now
+    var queue = collection.immutable.Queue.empty[(ActorRef, Any)]
     def receive = {
+      case "tick" ⇒
+        if (queue.nonEmpty) {
+          val (sender, req) = queue.head
+          hostConnectorInfo.hostConnector.tell(req, sender)
+
+          queue = queue.tail
+        }
+        if (queue.nonEmpty) context.system.scheduler.scheduleOnce(4100.millis, self, "tick")
       case req: HttpRequest ⇒
-        if (nextSend.isOverdue()) {
+        if (queue.isEmpty) context.system.scheduler.scheduleOnce(4100.millis, self, "tick")
+        queue = queue.enqueue((sender, req))
+      /*if (nextSend.isOverdue()) {
           hostConnectorInfo.hostConnector.tell(req, sender)
           nextSend = Deadline.now + 4.seconds
         } else {
-          val deadline = nextSend.timeLeft + 1.second
+          val deadline = nextSend.timeLeft + 100.millis
           println(s"Delaying request for ${deadline.toMillis} ms")
           val s = sender
           context.system.scheduler.scheduleOnce(deadline) {
             self.tell(req, s)
           }
-        }
+        }*/
     }
   }
   val rateLimitedNetwork = system.actorOf(Props[RateLimitedSender])

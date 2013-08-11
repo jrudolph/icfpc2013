@@ -6,7 +6,7 @@ object Overview extends App {
   import ProblemRepository._
   import Client.system.dispatcher
 
-  val reload = if (false) Main.reloadProblems() else Future.successful(None)
+  val reload = if (true) Main.reloadProblems() else Future.successful(None)
 
   reload.foreach { _ ⇒
     val top50 = annotated.filter(_._2 >= 0).take(50)
@@ -46,6 +46,10 @@ object Overview extends App {
   }
 }
 
+object Methods {
+  def annotateDifficulty(p: Problem) = p -> p.numSolutions
+}
+
 object ProblemRepository {
   val allProblems = Main.loadProblems()
 
@@ -56,10 +60,9 @@ object ProblemRepository {
 
   val problems = allProblems.filter(_.canBeSolved)
   val (withFolds, withoutFolds) = problems.partition(_.hasFold)
-  val annotatedWithOverflowed = problems.map(annotateDifficulty).sortBy(_._2)
-  val annotated = annotatedWithOverflowed.filter(_._2 > 0)
+  lazy val annotatedWithOverflowed = problems.par.map(Methods.annotateDifficulty).seq.sortBy(_._2)
+  lazy val annotated = annotatedWithOverflowed.filter(_._2 > 0)
 
-  val easierThan10Million = annotated.count(_._2 < 5000000000L)
+  lazy val easierThan10Million = annotated.count(_._2 < 5000000000L)
 
-  def annotateDifficulty(p: Problem) = p -> p.numSolutions
 }

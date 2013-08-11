@@ -3,6 +3,7 @@ package net.virtualvoid.program
 import java.io.{ FileWriter, File }
 import scala.io.Source
 import scala.concurrent.Future
+import scala.util.{ Success, Try, Failure }
 
 object Main {
   import Client.system.dispatcher
@@ -35,12 +36,12 @@ object Main {
       thisLog.close()
     }
 
-  def trySolvingOneProblem(c: Problem, examples: Seq[PositiveExample] = Nil): Future[(Seq[PositiveExample], GuessResponse)] = {
+  def trySolvingOneProblem(c: Problem, num: Int = 5, examples: Seq[PositiveExample] = Nil): Future[(Seq[PositiveExample], GuessResponse)] = {
     val myLog = problemLog(c.id)
     println(s"Selected $c of difficulty ${c.numSolutions}")
-    println("Fetching examples...")
+    if (examples.isEmpty) println(s"Fetching $num examples...") else println(s"Trying with ${examples.size} examples")
     val exampleF =
-      if (examples.isEmpty) Client.fetchExamples(c.id, num = 5)
+      if (examples.isEmpty) Client.fetchExamples(c.id, num = num)
       else Future.successful(examples)
 
     exampleF.flatMap { exs ⇒
@@ -55,7 +56,7 @@ object Main {
       myLog.close()
 
       println("Running solver...")
-      val result = Synthesis.findMatching(exs, c.size, c.operators: _*)
+      val result = Synthesis.findMatching(c, exs)
       result match {
         case None ⇒
           println("Found no result")
@@ -74,24 +75,58 @@ object Main {
     }
   }
 
-  def onFinished(next: Problem, rest: List[Problem])(result: (Seq[PositiveExample], GuessResponse)): Unit = result match {
-    case (_, GuessResponse("win", _, _, _)) ⇒ trySeveral(rest)
-    case (exs, GuessResponse("mismatch", Some(Seq(input, output, myOutput)), _, _)) ⇒
-      trySolvingOneProblem(next, exs :+ PositiveExample(Client.parseLong(input.drop(2)), Client.parseLong(output.drop(2)))).foreach(onFinished(next, rest))
+  def onFinished(next: Problem, num: Int, rest: List[Problem])(result: Try[(Seq[PositiveExample], GuessResponse)]): Unit = result match {
+    case Success((_, GuessResponse("win", _, _, _))) ⇒ trySeveral(rest, num)
+    case Success((exs, GuessResponse("mismatch", Some(Seq(input, output, myOutput)), _, _))) ⇒
+      if (exs.size < 12)
+        trySolvingOneProblem(next, num, examples = exs :+ PositiveExample(Client.parseLong(input.drop(2)), Client.parseLong(output.drop(2))))
+          .onComplete(onFinished(next, num, rest))
+      else trySeveral(rest, num)
+    case Failure(x) ⇒
+      println(s"Failure ${x.getMessage}, trying next...")
+      trySeveral(rest, num)
   }
 
-  def trySeveral(all: List[Problem]): Unit = all match {
+  def trySeveral(all: List[Problem], num: Int = 10): Unit = all match {
     case next :: rest ⇒
-      trySolvingOneProblem(next).foreach(onFinished(next, rest))
+      trySolvingOneProblem(next, num = num).onComplete(onFinished(next, num, rest))
     case Nil ⇒ println("Completed all problems!")
   }
 
+  def tryBonus(sizeFilter: Int ⇒ Boolean) = {
+    val bonus = ProblemRepository.annotated.filter(_._1.isBonus)
+    val selected = bonus.filter(p ⇒ sizeFilter(p._1.size)).sortBy(_._2).take(50)
+    val min = selected.minBy(_._2)._2
+    val max = selected.maxBy(_._2)._2
+    println(s"Selected ${selected.size} problem of difficulties $min to $max")
+    trySeveral(selected.map(_._1).toList, num = 6)
+  }
+
+  def tryHardest() = {
+    val selected =
+      ProblemRepository.annotated.filter(x ⇒ !x._1.isBonus && x._1.hasIf0 && !x._1.hasFold)
+        .sortBy(-_._2)
+        .map(_._1).toList
+    println(s"Selected ${selected.size}")
+    trySeveral(selected, 6)
+  }
   def tryEasiest() = {
-    val easiest50 = ProblemRepository.annotated.take(50).map(_._1).toList
+    val easiest50 =
+      ProblemRepository.problems.sortBy {
+        case x if x.hasIf0 && !x.isBonus && !x.hasFold ⇒ x.size >> 32
+        case x if x.isBonus                            ⇒ x.size >> 32 | (2L << 32)
+        case x if !x.operators.contains("fold")        ⇒ x.size >> 32 | (1L << 32)
+
+        case x                                         ⇒ x.size >> 32 | (3L << 32)
+      }.toList
+
+    println(s"Trying a total of ${easiest50.size} problems")
+    //ProblemRepository.annotated.filter(x ⇒ !x._1.isBonus && x._1.hasIf0 && !x._1.hasFold).map(_._1).toList
 
     val (even, odd) = easiest50.zipWithIndex.partition(_._2 % 2 == 0)
 
-    Seq(even, odd).foreach(x ⇒ trySeveral(x.map(_._1)))
+    //trySeveral(easiest50, 6)
+    Seq(even, odd).foreach(x ⇒ trySeveral(x.map(_._1), 10))
     //trySeveral(easiest50)
   }
 
