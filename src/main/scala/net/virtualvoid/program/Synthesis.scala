@@ -4,10 +4,24 @@ import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.annotation.tailrec
 import java.util.concurrent.atomic.{ AtomicReference, AtomicBoolean, AtomicLong }
 import scala.collection.TraversableOnce
+import scala.collection.mutable.ArrayBuffer
 
-case class Example(input: Long, output: Long) {
+sealed trait Example {
+  def matchesProgram(program: Program): Boolean
+  def input: Long
+}
+
+case class PositiveExample(input: Long, output: Long) extends Example {
   def matchesProgram(program: Program): Boolean =
     Interpreter.eval(program)(input) == output
+}
+case class NegativeExample(input: Long, output: Long) extends Example {
+  def matchesProgram(program: Program): Boolean =
+    Interpreter.eval(program)(input) != output
+}
+case class CalculatedExample(input: Long, condition: Long ⇒ Boolean) extends Example {
+  def matchesProgram(program: Program): Boolean =
+    condition(Interpreter.eval(program)(input))
 }
 
 object Synthesis {
@@ -146,7 +160,7 @@ object Synthesis {
     lazy val ctx: Context = new Context {
       def synthesize(setup: NumSetup)(f: SynthesisResult ⇒ Unit): Unit =
         if (setup.remaining > 0) {
-          if (setup.depth < 2) synths.filter(_.canGenerate(setup)).par.foreach(_.generate(ctx, setup, f))
+          if (setup.depth < 0) synths.filter(_.canGenerate(setup)).par.foreach(_.generate(ctx, setup, f))
           else synths.filter(_.canGenerate(setup)).foreach(_.generate(ctx, setup, f))
         }
     }
@@ -154,6 +168,11 @@ object Synthesis {
   }
 
   def synthesize(targetSize: Int, ops: String*)(f: Program ⇒ Unit): Unit = synthesize(synthesizersForOperators(ops), targetSize, f)
+
+  def findMatching(problem: Problem, examples: Seq[Example]): Option[Program] = {
+    if (problem.isBonus) findMatchingBonus(examples, problem.size, problem.operators: _*)
+    else findMatching(examples, problem.size, problem.operators: _*)
+  }
 
   def findMatching(examples: Seq[Example], targetSize: Int, ops: String*): Option[Program] = {
     val tried = new AtomicLong()
@@ -165,7 +184,7 @@ object Synthesis {
         if (found) return res
         if (tried.incrementAndGet() % 100000 == 0) println(s"Now at $tried")
         if (examples.forall(_.matchesProgram(candidate))) {
-          println(s"Found $candidate")
+          //println(s"Found $candidate")
           res = Some(candidate)
           found = true
           return Some(candidate)
@@ -178,8 +197,124 @@ object Synthesis {
     val result = inner()
     val end = System.nanoTime()
     val rate = tried.get.toDouble * 1000000000d / (end - start)
-    println(f"Speed: $rate%8f t / s")
+    //if (result.isDefined) println(s"Found ${result.get}")
+    //println(f"Speed: $rate%8f t / s, total searched ${tried.get}")
     result
+  }
+  def findMatchingBonus(examples: Seq[Example], targetSize: Int, ops: String*): Option[Program] = {
+    val cleanOps = bonusCleanOps(ops)
+    val allExamplesSet = examples.toSet
+
+    case class PartialResult(part: Expr, matching: Seq[Example], notMatching: Seq[Example])
+
+    def find(size: Int, examples: Seq[Example]): Seq[PartialResult] = {
+      val results = new ArrayBuffer[PartialResult]
+
+      val tried = new AtomicLong()
+      synthesize(size, cleanOps: _*) { candidate ⇒
+        if (tried.incrementAndGet() % 100000 == 0) println(s"Now at $tried")
+        val (matching, notMatching) = examples.partition(_.matchesProgram(candidate))
+        if (matching.size > 0 && Metadata.size(candidate) == size) results += PartialResult(candidate.body, matching, notMatching)
+        /*if (matching.size >= threshold)
+          return Some(PartialResult(candidate.body, matching, notMatching))*/
+      }
+      results.toSeq
+    }
+
+    def tryWithConfig(conditionSize: Int, firstSize: Int): Option[Program] = {
+      if (4 + conditionSize + firstSize + 5 <= targetSize) {
+        case class Partitioning(first: Expr, second: Expr, conditionedExamples: Seq[Example])
+
+        def findPartitioning(firstExamples: Set[Example]): Option[Partitioning] = {
+          findMatching(firstExamples.toSeq, firstSize + 1, cleanOps: _*).flatMap {
+            case Program(_, firstPart) ⇒
+              val secondSize = targetSize - 4 - conditionSize - firstSize
+              val secondExamples = allExamplesSet -- firstExamples
+              findMatching(secondExamples.toSeq, secondSize + 1, cleanOps: _*).map {
+                case Program(_, secondPart) ⇒
+                  val trueExamples = firstExamples.map(e ⇒ CalculatedExample(e.input, v ⇒ (v & 1L) == 0))
+                  val falseExamples = secondExamples.map(e ⇒ CalculatedExample(e.input, v ⇒ (v & 1L) != 0))
+                  val allExamples = trueExamples ++ falseExamples
+
+                  Partitioning(firstPart, secondPart, allExamples.toSeq)
+              }
+          }
+        }
+        def findCondition(part: Partitioning): Option[Program] = {
+          findMatching(part.conditionedExamples, conditionSize + 1, cleanOps: _*).map {
+            case Program(_, condition) ⇒
+              println(s"Found condition: $condition")
+
+              val result = Program("x", If0(And(One, condition), part.first, part.second))
+              println(s"Full program is: $result")
+              require(examples.forall(_.matchesProgram(result)),
+                "Not all programs matched. Failure at " + {
+                  val broken = examples.filterNot(_.matchesProgram(result))
+                  broken.mkString(", ")
+                })
+
+              result
+          }
+        }
+        examples.toSet.subsets.toStream
+          .flatMap(findPartitioning)
+          .flatMap(findCondition)
+          .headOption
+
+        /*find(firstSize + 1, examples).sortBy(-_.matching.size).toStream.flatMap {
+          case PartialResult(part, firstMatches, notMatches) ⇒
+            val p = Program("x", part)
+            require(firstMatches.forall(_.matchesProgram(p)))
+
+            val secondSize = targetSize - 4 - conditionSize - firstSize
+            println(s"Found first (second size: $secondSize, missing: ${notMatches.size}): $part")
+            //find(secondSize, examples, secondSize).flatMap {
+            //case PartialResult(secondPart, m, m2) ⇒
+            findMatching(notMatches, secondSize + 1, cleanOps: _*).flatMap {
+              case Program(_, secondPart) ⇒
+
+                println(s"Found second: $secondPart")
+                val trueExamples = firstMatches.map(e ⇒ CalculatedExample(e.input, v ⇒ (v & 1L) == 0))
+                val falseExamples = notMatches.map(e ⇒ CalculatedExample(e.input, v ⇒ (v & 1L) != 0))
+                val allExamples = trueExamples ++ falseExamples
+                findMatching(allExamples, conditionSize + 1, cleanOps: _*).map {
+                  case Program(_, condition) ⇒
+                    println(s"Found condition: $condition")
+
+                    val result = Program("x", If0(And(One, condition), part, secondPart))
+                    println(s"Full program is: $result")
+                    require(examples.forall(_.matchesProgram(result)),
+                      "Not all programs matched. Failure at " + {
+                        val broken = examples.filterNot(_.matchesProgram(result))
+                        broken.mkString(", ")
+                      })
+
+                    result
+                }
+            }
+        }.headOption*/
+      } else None
+    }
+
+    val configs =
+      if (targetSize >= 25)
+        Seq(
+          (7, 7), (7, 5), (5, 7))
+      else Seq(
+        (5, 7),
+        (7, 5),
+        (5, 5),
+        (7, 7))
+
+    configs.foreach { c ⇒
+      println(s"Now trying config $c")
+      tryWithConfig(c._1, c._2) match {
+        case None        ⇒
+        case s @ Some(p) ⇒ return s
+      }
+    }
+
+    None
   }
 
   class Finder(examples: Seq[Example], targetSize: Int, ops: Seq[String], var s: Coll[Program]) {
@@ -305,23 +440,21 @@ object Synthesis {
   def tryTraining(t: TrainingProblem, num: Int = 10) = {
     val p = Parser(t.challenge)
     val exs = genExamples(p, num)
-    findMatching(exs, t.size, t.operators: _*)
+    findMatching(t.problem, exs)
   }
 
   def genExamples(p: Program, num: Int = 10): Seq[Example] = {
     val e = Interpreter(p)
-    testValues(num).map(x ⇒ Example(x, e(x)))
+    testValues(num).map(x ⇒ PositiveExample(x, e(x)))
   }
-  def testValues(num: Int = 10) = Seq.fill(num)(ThreadLocalRandom.current().nextLong())
+  def testValues(num: Int = 10) = Seq.fill(num)(ThreadLocalRandom.current().nextLong()) ++ Seq(0L, -1L, 0x1122334455667788L)
 
-  TrainingProblem("(lambda (x_11) (if0 (and (plus (or (not x_11) (shr4 x_11)) x_11) 1) (not (xor (shl1 1) (shr4 (shl1 x_11)))) (xor (shr16 (not (plus x_11 x_11))) x_11)))", "uHCrZqnrKMBm6HIMBlLwpNUg", 25, Seq("bonus", "and", "if0", "not", "or", "plus", "shl1", "shr16", "shr4", "xor"))
   def analyseBonus(p: Program) = p.body match {
     case If0(BinOpApply(And, x, One), thenB, elseB) ⇒ (Metadata.size(p), Metadata.size(x), Metadata.size(thenB), Metadata.size(elseB))
   }
 
   def numSolutionsBonus(p: Problem): Long = {
-    val meta = Set("bonus", "if0")
-    val opsClean = p.operators.filterNot(meta.contains)
+    val opsClean = bonusCleanOps(p.operators)
     val sizeClean = p.size - 4 // lambda, if0, and, 1
 
     def c(ifS: Int, thenS: Int) = Some((ifS, thenS, sizeClean - ifS - thenS)).filter(_._3 >= 5)
@@ -330,10 +463,13 @@ object Synthesis {
       c(5, 5), c(5, 7), c(7, 5), c(7, 7)).flatten
 
     def numSolutionsForCombi(c: (Int, Int, Int)): Long =
-      numSolutionsNew(c._1, opsClean: _*) *
-        numSolutionsNew(c._2, opsClean: _*) *
+      numSolutionsNew(c._1, opsClean: _*) +
+        numSolutionsNew(c._2, opsClean: _*) +
         numSolutionsNew(c._3, opsClean: _*)
 
     poss.map(numSolutionsForCombi).sum
   }
+  val bonusMetaOps = Set("bonus", "if0")
+  def bonusCleanOps(ops: Seq[String]): Seq[String] =
+    ops.filterNot(bonusMetaOps.contains)
 }

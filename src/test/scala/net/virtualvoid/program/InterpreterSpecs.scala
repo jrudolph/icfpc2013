@@ -23,6 +23,7 @@ class InterpreterSpecs extends Specification {
         p(0xab) === 0x0000000000000156L
         p(0x1122334455667788L) === 0x22446688AACCEF10L
         p(0x8877665544332211L) === 0x10EECCAA88664422L
+        p(0xffffffffffffffffL) === 0xFFFFFFFFFFFFFFFEL
       }
       "shr1 x" in {
         val p = Interpreter.eval("(lambda (x) (shr1 x))") _
@@ -30,6 +31,7 @@ class InterpreterSpecs extends Specification {
         p(0xab) === 0x0000000000000055L
         p(0x1122334455667788L) === 0x089119A22AB33BC4L
         p(0x8877665544332211L) === 0x443BB32AA2199108L
+        p(0xffffffffffffffffL) === 0x7FFFFFFFFFFFFFFFL
       }
       "shr16 x" in {
         val p = Interpreter.eval("(lambda (x) (shr16 x))") _
@@ -38,6 +40,7 @@ class InterpreterSpecs extends Specification {
         p(0xab) === 0x0000000000000000L
         p(0x1122334455667788L) === 0x0000112233445566L
         p(0x8877665544332211L) === 0x0000887766554433L
+        p(0xffffffffffffffffL) === 0x0000FFFFFFFFFFFFL
       }
       "shr4 not 1" in {
         val p = Interpreter.eval("(lambda (x) (shr4 (not 0)))") _
@@ -50,6 +53,7 @@ class InterpreterSpecs extends Specification {
         p(0xab) === 0x0FFFFFFFFFFFFFF5L
         p(0x1122334455667788L) === 0x0EEDDCCBBAA99887L
         p(0x8877665544332211L) === 0x0778899AABBCCDDEL
+        p(0L) === 0x0FFFFFFFFFFFFFFFL
       }
     }
     "binops" in {

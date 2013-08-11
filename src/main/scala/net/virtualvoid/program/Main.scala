@@ -35,7 +35,7 @@ object Main {
       thisLog.close()
     }
 
-  def trySolvingOneProblem(c: Problem, examples: Seq[Example] = Nil): Future[(Seq[Example], GuessResponse)] = {
+  def trySolvingOneProblem(c: Problem, examples: Seq[PositiveExample] = Nil): Future[(Seq[PositiveExample], GuessResponse)] = {
     val myLog = problemLog(c.id)
     println(s"Selected $c of difficulty ${c.numSolutions}")
     println("Fetching examples...")
@@ -74,10 +74,10 @@ object Main {
     }
   }
 
-  def onFinished(next: Problem, rest: List[Problem])(result: (Seq[Example], GuessResponse)): Unit = result match {
+  def onFinished(next: Problem, rest: List[Problem])(result: (Seq[PositiveExample], GuessResponse)): Unit = result match {
     case (_, GuessResponse("win", _, _, _)) ⇒ trySeveral(rest)
     case (exs, GuessResponse("mismatch", Some(Seq(input, output, myOutput)), _, _)) ⇒
-      trySolvingOneProblem(next, exs :+ Example(Client.parseLong(input.drop(2)), Client.parseLong(output.drop(2)))).foreach(onFinished(next, rest))
+      trySolvingOneProblem(next, exs :+ PositiveExample(Client.parseLong(input.drop(2)), Client.parseLong(output.drop(2)))).foreach(onFinished(next, rest))
   }
 
   def trySeveral(all: List[Problem]): Unit = all match {

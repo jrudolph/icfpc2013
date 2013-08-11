@@ -22,6 +22,7 @@ case class Problem(id: String, size: Int, operators: Seq[String], solved: Option
   def hasFold: Boolean = operators.exists(_.contains("fold"))
   def hasIf0 = operators.contains("if0")
   def hasNoIf0AndFold = !hasFold && !hasIf0
+  def hasPlus = operators.contains("plus")
   def isSolved = solved.exists(identity)
   def canBeSolved: Boolean = !isSolved && timeLeft.forall(_ > 0)
   def isBonus = operators.contains("bonus")

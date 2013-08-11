@@ -19,7 +19,7 @@ libraryDependencies ++= {
   )
 }
 
-initialCommands ~= (_ + "import net.virtualvoid.program._\nimport Client.system.dispatcher")
+initialCommands ~= (_ + "import net.virtualvoid.program._\nimport Client.system.dispatcher\nimport Synthesis._")
 
 
 scalaVersion := "2.10.2"

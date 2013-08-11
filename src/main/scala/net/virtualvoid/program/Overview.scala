@@ -15,17 +15,6 @@ object Overview extends App {
       println(f"${t._2}%15d $isBonus%5s $size%2d $id")
     }
 
-    println()
-    println(f"With folds: ${withFolds.size}%5d")
-    println(f"Without folds: ${withoutFolds.size}")
-
-    println("With if0: " + problems.count(_.hasIf0))
-    println("Without hard: " + problems.count(_.hasNoIf0AndFold))
-
-    println(s"Easier than 150 mio: $easierThan10Million")
-    println("Out of long range: " + annotated.count(_._2 < 0))
-
-    println()
     println("Histo, 2 ^ x | n | cumulative")
     var cum = 0L
     var cumT = 0d
@@ -36,9 +25,19 @@ object Overview extends App {
       cum += num
       cumT += num.toLong * p
       val dur = cumT.toDouble / 2000000 / 3600 // 2 mio ops per sec
-      if (num > 0) println(f"$i%2d $num%4d $cum%4d $dur%6.2f h")
+      if (num > 0) println(f"2^$i%2d $num%4d $cum%4d $dur%6.2f h")
     }
     println()
+
+    println(f"With folds: ${withFolds.size}%5d")
+    println(f"Without folds: ${withoutFolds.size}")
+
+    println("With if0: " + problems.count(_.hasIf0))
+    println("Without hard: " + problems.count(_.hasNoIf0AndFold))
+    println("With plus: " + problems.count(_.hasPlus))
+
+    println(s"Easier than 150 mio: $easierThan10Million")
+    println("Out of long range: " + annotated.count(_._2 < 0))
 
     println("Bonus: " + problems.count(_.isBonus))
     println(s"Total: $total Solved: $solved Unsolved: $unsolved Failed: $failed")

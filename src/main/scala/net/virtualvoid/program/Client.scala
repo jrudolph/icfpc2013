@@ -54,11 +54,11 @@ object Client {
   def eval(id: String, arguments: Seq[Long]): Future[EvalResponse] =
     evalPipeline(req("eval", EvalRequest(Some(id), None, arguments)))
 
-  def fetchExamples(id: String, num: Int = 10): Future[Seq[Example]] = {
+  def fetchExamples(id: String, num: Int = 10): Future[Seq[PositiveExample]] = {
     val es = Synthesis.testValues(num)
     for {
       resp ← evalPipeline(req("eval", EvalRequest(Some(id), None, es)))
-    } yield (es, resp.outputs.get).zipped.map((i, o) ⇒ Example(i, parseLong(o.drop(2))))
+    } yield (es, resp.outputs.get).zipped.map((i, o) ⇒ PositiveExample(i, parseLong(o.drop(2))))
   }
 
   val problemPipeline = network ~> unmarshal[Seq[Problem]]
