@@ -2,6 +2,8 @@ package net.virtualvoid.program
 
 import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.annotation.tailrec
+import java.util.concurrent.atomic.{ AtomicReference, AtomicBoolean, AtomicLong }
+import scala.collection.TraversableOnce
 
 case class Example(input: Long, output: Long) {
   def matchesProgram(program: Program): Boolean =
@@ -12,72 +14,104 @@ object Synthesis {
   val x = Ident("x")
   val y = Ident("y")
   val z = Ident("z")
-  val xs = Seq(x)
-  val xyz = Seq(x, y, z)
+  val xs = singleColl(x)
+  val xyz = many(x, y, z)
 
-  case class NumSetup(remaining: Int, vars: Seq[Ident], inFold: Boolean, alreadyFold: Boolean) {
-    def +(i: Int) = copy(remaining = remaining + i)
+  /*type Coll[T] = TraversableOnce[T]
+  def emptyColl[T]: Coll[T] = Traversable.empty
+  def singleColl[T](t: T): Coll[T] = Traversable(t)*/
+  type Coll[T] = Vector[T]
+  def emptyColl[T]: Coll[T] = Vector.empty
+  def singleColl[T](t: T): Coll[T] = Vector(t)
+  def many[T](ts: T*): Coll[T] = ts.toVector
+
+  //type Coll[T] = Stream[T]
+  //def emptyColl[T]: Coll[T] = Stream.empty
+  //def singleColl[T](t: T): Coll[T] = Stream(t)
+  //def many[T](ts: T*): Coll[T] = ts.toStream
+
+  case class NumSetup(remaining: Int, vars: Seq[Ident], inFold: Boolean, alreadyFold: Boolean, depth: Int = 0) {
+    def +(i: Int) = copy(remaining = remaining + i, depth = depth + 1)
     def -(i: Int) = this + (-i)
+
+    override def equals(obj: scala.Any): Boolean = obj match {
+      case NumSetup(rem, vs, in, al, _) ⇒ remaining == rem && inFold == in && alreadyFold == al && vars.size == vs.size
+      case _                            ⇒ false
+    }
+    override def hashCode(): Int = (remaining, vars.size, inFold, alreadyFold).hashCode()
   }
   case class SynthesisResult(result: Expr, setup: NumSetup)
   trait Context {
-    def synthesize(setup: NumSetup): Seq[SynthesisResult]
+    def synthesize(setup: NumSetup)(f: SynthesisResult ⇒ Unit): Unit
   }
   abstract class Synthesizer(val minSize: Int, val maxSize: Int) {
-    def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult]
+    def generate(ctx: Context, setup: NumSetup, f: SynthesisResult ⇒ Unit): Unit
 
     def canGenerate(setup: NumSetup): Boolean = setup.remaining >= minSize
   }
 
   object ZeroSynthesizer extends Synthesizer(1, 1) {
-    def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult] = Seq(SynthesisResult(Zero, setup - 1))
+    def generate(ctx: Context, setup: NumSetup, f: SynthesisResult ⇒ Unit): Unit = f(SynthesisResult(Zero, setup - 1))
   }
   object OneSynthesizer extends Synthesizer(1, 1) {
-    def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult] = Seq(SynthesisResult(One, setup - 1))
+    def generate(ctx: Context, setup: NumSetup, f: SynthesisResult ⇒ Unit): Unit = f(SynthesisResult(One, setup - 1))
   }
   object IdentSynthesizer extends Synthesizer(1, 1) {
-    def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult] = setup.vars.map(x ⇒ SynthesisResult(x, setup - 1))
+    def generate(ctx: Context, setup: NumSetup, f: SynthesisResult ⇒ Unit): Unit = setup.vars.foreach(x ⇒ f(SynthesisResult(x, setup - 1)))
   }
   def unOpSynthesizer(unOp: UnaryOp): Synthesizer =
     new Synthesizer(2, Int.MaxValue) {
-      def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult] =
-        for {
-          SynthesisResult(arg, s1) ← ctx.synthesize(setup - 1)
-        } yield SynthesisResult(UnaryOpApply(unOp, arg), s1)
+      def generate(ctx: Context, setup: NumSetup, f: SynthesisResult ⇒ Unit): Unit =
+        ctx.synthesize(setup - 1) {
+          case SynthesisResult(arg, s1) ⇒ f(SynthesisResult(UnaryOpApply(unOp, arg), s1))
+        }
     }
   def binOpSynthesizer(binOp: BinaryOp): Synthesizer =
     new Synthesizer(3, Int.MaxValue) {
-      def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult] =
-        for {
-          SynthesisResult(arg1, s1) ← ctx.synthesize(setup - 1)
-          SynthesisResult(arg2, s2) ← ctx.synthesize(s1)
-        } yield SynthesisResult(BinOpApply(binOp, arg1, arg2), s2)
+      def generate(ctx: Context, setup: NumSetup, f: SynthesisResult ⇒ Unit): Unit =
+        ctx.synthesize(setup - 1) {
+          case SynthesisResult(arg1, s1) ⇒
+            ctx.synthesize(s1) {
+              case SynthesisResult(arg2, s2) ⇒ f(SynthesisResult(BinOpApply(binOp, arg1, arg2), s2))
+            }
+        }
     }
   object If0Synthesizer extends Synthesizer(4, Int.MaxValue) {
-    def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult] =
-      for {
-        SynthesisResult(arg1, s1) ← ctx.synthesize(setup - 1)
-        SynthesisResult(arg2, s2) ← ctx.synthesize(s1)
-        SynthesisResult(arg3, s3) ← ctx.synthesize(s2)
-      } yield SynthesisResult(If0(arg1, arg2, arg3), s3)
+    def generate(ctx: Context, setup: NumSetup, f: SynthesisResult ⇒ Unit): Unit =
+      ctx.synthesize(setup - 1) {
+        case SynthesisResult(arg1, s1) ⇒
+          ctx.synthesize(s1) {
+            case SynthesisResult(arg2, s2) ⇒
+              ctx.synthesize(s2) {
+                case SynthesisResult(arg3, s3) ⇒ f(SynthesisResult(If0(arg1, arg2, arg3), s3))
+              }
+          }
+      }
   }
   object TFoldSynthesizer extends Synthesizer(4, Int.MaxValue) {
-    def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult] =
-      for {
-        SynthesisResult(arg1, s1) ← ctx.synthesize(NumSetup(setup.remaining - 2, xs, false, true))
-        SynthesisResult(arg2, s2) ← ctx.synthesize(NumSetup(s1.remaining, xyz, true, true))
-      } yield SynthesisResult(Fold(arg1, Zero, "y", "z", arg2), NumSetup(s2.remaining, xs, false, true))
+    def generate(ctx: Context, setup: NumSetup, f: SynthesisResult ⇒ Unit): Unit =
+      ctx.synthesize(NumSetup(setup.remaining - 2, xs, false, true)) {
+        case SynthesisResult(arg1, s1) ⇒
+          ctx.synthesize(NumSetup(s1.remaining, xyz, true, true)) {
+            case SynthesisResult(arg2, s2) ⇒ f(SynthesisResult(Fold(arg1, Zero, "y", "z", arg2), NumSetup(s2.remaining, xs, false, true)))
+          }
+      }
 
     override def canGenerate(setup: NumSetup): Boolean =
       !setup.alreadyFold && setup.remaining >= 4
   }
   object FoldSynthesizer extends Synthesizer(5, Int.MaxValue) {
-    def generate(ctx: Context, setup: NumSetup): Seq[SynthesisResult] =
-      for {
-        SynthesisResult(arg1, s1) ← ctx.synthesize(NumSetup(setup.remaining - 2, xs, false, true))
-        SynthesisResult(arg2, s2) ← ctx.synthesize(NumSetup(s1.remaining, xs, false, true))
-        SynthesisResult(arg3, s3) ← ctx.synthesize(NumSetup(s2.remaining, xyz, true, true))
-      } yield SynthesisResult(Fold(arg1, arg2, "y", "z", arg3), NumSetup(s3.remaining, xs, false, true))
+    def generate(ctx: Context, setup: NumSetup, f: SynthesisResult ⇒ Unit): Unit =
+      ctx.synthesize(NumSetup(setup.remaining - 2, xs, false, true)) {
+        case SynthesisResult(arg1, s1) ⇒
+          ctx.synthesize(NumSetup(s1.remaining, xs, false, true)) {
+            case SynthesisResult(arg2, s2) ⇒
+              ctx.synthesize(NumSetup(s2.remaining, xyz, true, true)) {
+                case SynthesisResult(arg3, s3) ⇒
+                  f(SynthesisResult(Fold(arg1, arg2, "y", "z", arg3), NumSetup(s3.remaining, xs, false, true)))
+              }
+          }
+      }
 
     override def canGenerate(setup: NumSetup): Boolean =
       !setup.alreadyFold && setup.remaining >= 5
@@ -103,25 +137,84 @@ object Synthesis {
   def synthesizersForOperators(ops: Seq[String]) =
     Seq(ZeroSynthesizer, OneSynthesizer, IdentSynthesizer) ++ ops.map(synthesizer)
 
-  def synthesize(synthesizers: Seq[Synthesizer], targetSize: Int): Seq[Program] = {
+  def synthesize(synthesizers: Seq[Synthesizer], targetSize: Int, f: Program ⇒ Unit): Unit = {
     val ctx = contextFor(synthesizers, targetSize)
-    ctx.synthesize(NumSetup(targetSize - 1, xs, false, false)).map(x ⇒ Program("x", x.result))
+    ctx.synthesize(NumSetup(targetSize - 1, xs, false, false)) { x ⇒ f(Program("x", x.result)) }
   }
   def contextFor(synthesizers: Seq[Synthesizer], targetSize: Int): Context = {
+    val synths = many(synthesizers: _*)
     lazy val ctx: Context = new Context {
-      def synthesize(setup: NumSetup): Seq[SynthesisResult] =
-        if (setup.remaining == 0) Stream.empty
-        else synthesizers.filter(_.canGenerate(setup)).toStream.flatMap(_.generate(ctx, setup))
+      def synthesize(setup: NumSetup)(f: SynthesisResult ⇒ Unit): Unit =
+        if (setup.remaining > 0) {
+          if (setup.depth < 2) synths.filter(_.canGenerate(setup)).par.foreach(_.generate(ctx, setup, f))
+          else synths.filter(_.canGenerate(setup)).foreach(_.generate(ctx, setup, f))
+        }
     }
     ctx
   }
 
-  def synthesize(targetSize: Int, ops: String*): Seq[Program] = synthesize(synthesizersForOperators(ops), targetSize)
+  def synthesize(targetSize: Int, ops: String*)(f: Program ⇒ Unit): Unit = synthesize(synthesizersForOperators(ops), targetSize, f)
+
+  def findMatching(examples: Seq[Example], targetSize: Int, ops: String*): Option[Program] = {
+    val tried = new AtomicLong()
+    @volatile var res: Option[Program] = None
+    @volatile var found = false
+
+    def inner(): Option[Program] = {
+      synthesize(targetSize, ops: _*) { candidate ⇒
+        if (found) return res
+        if (tried.incrementAndGet() % 100000 == 0) println(s"Now at $tried")
+        if (examples.forall(_.matchesProgram(candidate))) {
+          println(s"Found $candidate")
+          res = Some(candidate)
+          found = true
+          return Some(candidate)
+        }
+      }
+      res
+    }
+
+    val start = System.nanoTime()
+    val result = inner()
+    val end = System.nanoTime()
+    val rate = tried.get.toDouble * 1000000000d / (end - start)
+    println(f"Speed: $rate%8f t / s")
+    result
+  }
+
+  class Finder(examples: Seq[Example], targetSize: Int, ops: Seq[String], var s: Coll[Program]) {
+    var tried = new AtomicLong()
+    final def find(): Option[Program] = {
+      /*s.par.find { candidate ⇒
+        if (tried.incrementAndGet() % 100000 == 0) println(s"Now at $tried")
+        examples.forall(_.matchesProgram(candidate))
+      }*/
+      if (s.isEmpty) None
+      else {
+        if (tried.incrementAndGet() % 100000 == 0) println(s"Now at $tried")
+        val candidate = s.head
+        s = s.tail
+        if (examples.forall(_.matchesProgram(candidate))) return Some(candidate)
+        else find()
+      }
+    }
+  }
 
   def numSolutionsNew(targetSize: Int, ops: String*): Long = {
     val numBins = ops.count(binops.contains)
     val numUns = ops.count(unops.contains)
     val numConst = 3
+
+    object OneVar extends Seq[Ident] {
+      def length: Int = 1
+      def apply(idx: Int): Ident = ???
+      def iterator: Iterator[Ident] = ???
+    }
+    object TwoVars extends Seq[Ident] {
+      def length: Int = 2
+      def apply(idx: Int): Ident = ???
+      def iterator: Iterator[Ident] = ???
+    }
 
     sealed trait Choice {
       def isFold: Boolean = false
@@ -166,7 +259,7 @@ object Synthesis {
         case (setup, entries) ⇒ Result(setup, entries.map(_.total).sum)
       }.toSeq
     def numAt(setup: NumSetup)(choice: Choice): Seq[Result] = choice match {
-      case Const ⇒ if (setup.remaining >= 1) Seq(Result(setup - 1, 3 + (if (setup.inFold) 2 else 0))) else Nil
+      case Const ⇒ if (setup.remaining >= 1) Seq(Result(setup - 1, 3 + setup.vars.size)) else Nil
       case UnOp ⇒
         if (setup.remaining >= 2)
           for {
@@ -178,7 +271,7 @@ object Synthesis {
           for {
             Result(s1, nums1) ← nums(setup - 2)
             Result(s2, nums2) ← nums(s1 + 1)
-          } yield Result(s2, nums1 * nums2 * numBins)
+          } yield Result(s2, nums1 * nums2 * numBins / 2 /* because of commutativity ? */ )
         else Nil
       case If0 ⇒
         if (setup.remaining >= 4)
@@ -191,65 +284,28 @@ object Synthesis {
       case TFold ⇒
         if (setup.remaining >= 4)
           for {
-            Result(NumSetup(r1, _, _, _), nums1) ← nums(NumSetup(setup.remaining - 3, Nil, false, true))
-            Result(NumSetup(r2, _, _, _), nums2) ← nums(NumSetup(r1 + 1, Nil, true, true))
-          } yield Result(NumSetup(r2, Nil, false, true), nums1 * nums2)
+            Result(NumSetup(r1, _, _, _, _), nums1) ← nums(NumSetup(setup.remaining - 3, emptyColl, false, true))
+            Result(NumSetup(r2, _, _, _, _), nums2) ← nums(NumSetup(r1 + 1, OneVar, true, true))
+          } yield Result(NumSetup(r2, emptyColl, false, true), nums1 * nums2)
         else Nil
       case Fold ⇒
         if (setup.remaining >= 5)
           for {
-            Result(NumSetup(r1, _, _, _), nums1) ← nums(NumSetup(setup.remaining - 4, Nil, false, true))
-            Result(NumSetup(r2, _, _, _), nums2) ← nums(NumSetup(r1 + 1, Nil, false, true))
-            Result(NumSetup(r3, _, _, _), nums3) ← nums(NumSetup(r2 + 1, Nil, true, true))
-          } yield Result(NumSetup(r3, Nil, false, true), nums1 * nums2 * nums3)
+            Result(NumSetup(r1, _, _, _, _), nums1) ← nums(NumSetup(setup.remaining - 4, emptyColl, false, true))
+            Result(NumSetup(r2, _, _, _, _), nums2) ← nums(NumSetup(r1 + 1, emptyColl, false, true))
+            Result(NumSetup(r3, _, _, _, _), nums3) ← nums(NumSetup(r2 + 1, TwoVars, true, true))
+          } yield Result(NumSetup(r3, emptyColl, false, true), nums1 * nums2 * nums3)
         else Nil
     }
-    val allRes = nums(NumSetup(targetSize - 1, Nil, false, false))
+    val allRes = nums(NumSetup(targetSize - 1, emptyColl, false, false))
     //println(allRes)
     allRes.find(_.setup.remaining == 0).map(_.total).getOrElse(0L)
-    //val x = Ident("x")
-    //val ctx = contextFor(synthesizersForOperators(ops), targetSize, Seq(x))
-    //ctx.numSolutions(1, targetSize - 1)
-  }
-  def numSolutions(targetSize: Int, ops: String*): Int = {
-    var counter = 0
-    synthesize(targetSize, ops: _*).foreach { _ ⇒
-      counter += 1
-      if (counter % 10000 == 0) println(s"Now at $counter")
-      if (counter > 10000000) return 10000000
-    }
-    counter
   }
 
-  def findMatching(examples: Seq[Example], targetSize: Int, ops: String*): Option[Program] = {
-    def createFinder() = new Finder(examples, targetSize, ops, synthesize(targetSize, ops: _*).asInstanceOf[Stream[Program]])
-    val finder = createFinder()
-    val start = System.nanoTime()
-    val result = finder.find()
-    val end = System.nanoTime()
-    val rate = finder.tried.toDouble * 1000000000d / (end - start)
-    println(f"Speed: $rate%8f t / s")
-    result
-  }
   def tryTraining(t: TrainingProblem, num: Int = 10) = {
     val p = Parser(t.challenge)
     val exs = genExamples(p, num)
     findMatching(exs, t.size, t.operators: _*)
-  }
-
-  class Finder(examples: Seq[Example], targetSize: Int, ops: Seq[String], var s: Stream[Program]) {
-    var tried = 0
-    @tailrec final def find(): Option[Program] = {
-      if (s.isEmpty) None
-      else {
-        tried += 1
-        if (tried % 100000 == 0) println(s"Now at $tried")
-        val candidate = s.head
-        s = s.tail
-        if (examples.forall(_.matchesProgram(candidate))) return Some(candidate)
-        else find()
-      }
-    }
   }
 
   def genExamples(p: Program, num: Int = 10): Seq[Example] = {
@@ -257,17 +313,27 @@ object Synthesis {
     testValues(num).map(x ⇒ Example(x, e(x)))
   }
   def testValues(num: Int = 10) = Seq.fill(num)(ThreadLocalRandom.current().nextLong())
+
+  TrainingProblem("(lambda (x_11) (if0 (and (plus (or (not x_11) (shr4 x_11)) x_11) 1) (not (xor (shl1 1) (shr4 (shl1 x_11)))) (xor (shr16 (not (plus x_11 x_11))) x_11)))", "uHCrZqnrKMBm6HIMBlLwpNUg", 25, Seq("bonus", "and", "if0", "not", "or", "plus", "shl1", "shr16", "shr4", "xor"))
+  def analyseBonus(p: Program) = p.body match {
+    case If0(BinOpApply(And, x, One), thenB, elseB) ⇒ (Metadata.size(p), Metadata.size(x), Metadata.size(thenB), Metadata.size(elseB))
+  }
+
+  def numSolutionsBonus(p: Problem): Long = {
+    val meta = Set("bonus", "if0")
+    val opsClean = p.operators.filterNot(meta.contains)
+    val sizeClean = p.size - 4 // lambda, if0, and, 1
+
+    def c(ifS: Int, thenS: Int) = Some((ifS, thenS, sizeClean - ifS - thenS)).filter(_._3 >= 5)
+
+    val poss = Seq(
+      c(5, 5), c(5, 7), c(7, 5), c(7, 7)).flatten
+
+    def numSolutionsForCombi(c: (Int, Int, Int)): Long =
+      numSolutionsNew(c._1, opsClean: _*) *
+        numSolutionsNew(c._2, opsClean: _*) *
+        numSolutionsNew(c._3, opsClean: _*)
+
+    poss.map(numSolutionsForCombi).sum
+  }
 }
-
-/*
-Success(
-TrainingProblem(
-(lambda (x_7052) (plus (plus (or 1 x_7052) x_7052) x_7052)),
-TPdJVGzfEl7QynADKD83nRYt,
-8,
-List(or, plus)))
-*/
-
-/*
-Success(TrainingProblem((lambda (x_10029) (if0 (or (shr4 0) (and 1 x_10029)) x_10029 1)),kOYPCUDqQcWQINfrhpRGdLuC,10,List(and, if0, or, shr4)))
- */

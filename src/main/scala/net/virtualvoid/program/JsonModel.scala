@@ -12,14 +12,19 @@ import spray.json.DefaultJsonProtocol
   }
 */
 case class Problem(id: String, size: Int, operators: Seq[String], solved: Option[Boolean], timeLeft: Option[Int]) {
-  def numSolutions: Long = Synthesis.numSolutionsNew(size, operators: _*)
+  def numSolutions: Long =
+    if (isBonus) Synthesis.numSolutionsBonus(this)
+    else Synthesis.numSolutionsNew(size, operators: _*)
 
   override def toString: String =
     s"""Problem("$id", $size, Seq(${operators.map("\"" + _ + "\"").mkString(", ")}), $solved, $timeLeft)"""
 
   def hasFold: Boolean = operators.exists(_.contains("fold"))
+  def hasIf0 = operators.contains("if0")
+  def hasNoIf0AndFold = !hasFold && !hasIf0
   def isSolved = solved.exists(identity)
   def canBeSolved: Boolean = !isSolved && timeLeft.forall(_ > 0)
+  def isBonus = operators.contains("bonus")
 }
 
 /*

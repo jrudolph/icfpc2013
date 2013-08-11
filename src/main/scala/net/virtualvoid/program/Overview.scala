@@ -1,15 +1,50 @@
 package net.virtualvoid.program
 
+import scala.concurrent.Future
+
 object Overview extends App {
   import ProblemRepository._
+  import Client.system.dispatcher
 
-  val top50 = annotated.filter(_._2 >= 0).take(50)
-  top50.foreach(t ⇒ println(t._1.id + " " + t._2))
+  val reload = if (false) Main.reloadProblems() else Future.successful(None)
 
-  println()
-  println(f"With folds: ${withFolds.size}%5d Without folds: ${withoutFolds.size}")
-  println(s"Easier than 10 mio: $easierThan10Million")
-  println(s"Total: $total Solved: $solved Unsolved: $unsolved Failed: $failed")
+  reload.foreach { _ ⇒
+    val top50 = annotated.filter(_._2 >= 0).take(50)
+    top50.foreach { t ⇒
+      import t._1._
+      println(f"${t._2}%15d $isBonus%5s $size%2d $id")
+    }
+
+    println()
+    println(f"With folds: ${withFolds.size}%5d")
+    println(f"Without folds: ${withoutFolds.size}")
+
+    println("With if0: " + problems.count(_.hasIf0))
+    println("Without hard: " + problems.count(_.hasNoIf0AndFold))
+
+    println(s"Easier than 150 mio: $easierThan10Million")
+    println("Out of long range: " + annotated.count(_._2 < 0))
+
+    println()
+    println("Histo, 2 ^ x | n | cumulative")
+    var cum = 0L
+    var cumT = 0d
+    (0 until 62).foreach { i ⇒
+      val l = Math.pow(2, i - 1)
+      val p = Math.pow(2, i)
+      val num = annotated.count(x ⇒ x._2 >= l && x._2 < p)
+      cum += num
+      cumT += num.toLong * p
+      val dur = cumT.toDouble / 2000000 / 3600 // 2 mio ops per sec
+      if (num > 0) println(f"$i%2d $num%4d $cum%4d $dur%6.2f h")
+    }
+    println()
+
+    println("Bonus: " + problems.count(_.isBonus))
+    println(s"Total: $total Solved: $solved Unsolved: $unsolved Failed: $failed")
+
+    Client.shutdown()
+  }
 }
 
 object ProblemRepository {
@@ -25,7 +60,7 @@ object ProblemRepository {
   val annotatedWithOverflowed = problems.map(annotateDifficulty).sortBy(_._2)
   val annotated = annotatedWithOverflowed.filter(_._2 > 0)
 
-  val easierThan10Million = annotated.count(_._2 < 10000000)
+  val easierThan10Million = annotated.count(_._2 < 5000000000L)
 
   def annotateDifficulty(p: Problem) = p -> p.numSolutions
 }

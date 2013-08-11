@@ -27,21 +27,20 @@ object Main {
     logStream.flush()
   }
 
-  def reloadProblems() = {
-    Client.newProblem().foreach { ps ⇒
+  def reloadProblems() =
+    Client.newProblem().map { ps ⇒
       println(s"Got ${ps.size} problems: $ps")
       val thisLog = nextProblemLog()
       ps.foreach(p ⇒ thisLog.append(renderProblem(p) + "\n"))
       thisLog.close()
     }
-  }
 
   def trySolvingOneProblem(c: Problem, examples: Seq[Example] = Nil): Future[(Seq[Example], GuessResponse)] = {
     val myLog = problemLog(c.id)
     println(s"Selected $c of difficulty ${c.numSolutions}")
     println("Fetching examples...")
     val exampleF =
-      if (examples.isEmpty) Client.fetchExamples(c.id)
+      if (examples.isEmpty) Client.fetchExamples(c.id, num = 5)
       else Future.successful(examples)
 
     exampleF.flatMap { exs ⇒
@@ -90,7 +89,10 @@ object Main {
   def tryEasiest() = {
     val easiest50 = ProblemRepository.annotated.take(50).map(_._1).toList
 
-    trySeveral(easiest50)
+    val (even, odd) = easiest50.zipWithIndex.partition(_._2 % 2 == 0)
+
+    Seq(even, odd).foreach(x ⇒ trySeveral(x.map(_._1)))
+    //trySeveral(easiest50)
   }
 
   def renderProblem(p: Problem): String = {
@@ -115,6 +117,8 @@ object Main {
 
       Problem(id, sizeStr.toInt, ops, solved, timeLeft)
     }
-    Source.fromFile(latestFile).getLines().toIndexedSeq.map(loadLine)
+    val latest = latestFile
+    println(s"Loading from $latest")
+    Source.fromFile(latest).getLines().toIndexedSeq.map(loadLine)
   }
 }

@@ -1,5 +1,8 @@
 package net.virtualvoid.program
 
 object AutoProblemSolverMain extends App {
-  Main.tryEasiest()
+  import Client.system.dispatcher
+  Main.reloadProblems().onComplete { _ ⇒
+    Main.tryEasiest()
+  }
 }
