@@ -1,6 +1,7 @@
 package net.virtualvoid.program
 
 import spray.json.DefaultJsonProtocol
+import scala.concurrent.duration._
 
 /*
   interface Problem {
@@ -12,6 +13,8 @@ import spray.json.DefaultJsonProtocol
   }
 */
 case class Problem(id: String, size: Int, operators: Seq[String], solved: Option[Boolean], timeLeft: Option[Int]) {
+  val deadline = timeLeft.map(Deadline.now + _.seconds)
+
   def numSolutions: Long =
     if (isBonus) Synthesis.numSolutionsBonus(this)
     else Synthesis.numSolutionsNew(size, operators: _*)
@@ -24,7 +27,7 @@ case class Problem(id: String, size: Int, operators: Seq[String], solved: Option
   def hasNoIf0AndFold = !hasFold && !hasIf0
   def hasPlus = operators.contains("plus")
   def isSolved = solved.exists(identity)
-  def canBeSolved: Boolean = !isSolved && timeLeft.forall(_ > 0)
+  def canBeSolved: Boolean = !isSolved && timeLeft.forall(_ > 30)
   def isBonus = operators.contains("bonus")
 }
 
@@ -119,7 +122,7 @@ case class Status(
   cpuTotalTime: Int)
 
 object JsonProtocol extends DefaultJsonProtocol {
-  implicit val problemF = jsonFormat5(Problem)
+  implicit val problemF = jsonFormat(Problem, "id", "size", "operators", "solved", "timeLeft")
   implicit val evalRequestF = jsonFormat3(EvalRequest)
   implicit val evalResponseF = jsonFormat3(EvalResponse)
   implicit val guessF = jsonFormat2(Guess)

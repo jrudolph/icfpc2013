@@ -89,7 +89,8 @@ object Main {
 
   def trySeveral(all: List[Problem], num: Int = 10): Unit = all match {
     case next :: rest ⇒
-      trySolvingOneProblem(next, num = num).onComplete(onFinished(next, num, rest))
+      if (next.deadline.exists(_.isOverdue())) trySeveral(rest, num)
+      else trySolvingOneProblem(next, num = num).onComplete(onFinished(next, num, rest))
     case Nil ⇒ println("Completed all problems!")
   }
 
@@ -113,11 +114,8 @@ object Main {
   def tryEasiest() = {
     val easiest50 =
       ProblemRepository.problems.sortBy {
-        case x if x.hasIf0 && !x.isBonus && !x.hasFold ⇒ x.size >> 32
-        case x if x.isBonus                            ⇒ x.size >> 32 | (2L << 32)
-        case x if !x.operators.contains("fold")        ⇒ x.size >> 32 | (1L << 32)
-
-        case x                                         ⇒ x.size >> 32 | (3L << 32)
+        case x if x.isBonus ⇒ x.size >> 32 | (2L << 32)
+        case x              ⇒ x.size >> 32 | (1L << 32)
       }.toList
 
     println(s"Trying a total of ${easiest50.size} problems")
@@ -126,7 +124,7 @@ object Main {
     val (even, odd) = easiest50.zipWithIndex.partition(_._2 % 2 == 0)
 
     //trySeveral(easiest50, 6)
-    Seq(even, odd).foreach(x ⇒ trySeveral(x.map(_._1), 10))
+    Seq(even, odd).foreach(x ⇒ trySeveral(x.map(_._1), 6))
     //trySeveral(easiest50)
   }
 

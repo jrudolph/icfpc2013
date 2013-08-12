@@ -182,13 +182,14 @@ object Synthesis {
 
   def findMatching(problem: Problem, examples: Seq[Example]): Option[Program] = {
     if (problem.isBonus)
-      findMatching(examples, 5, problem.operators.filterNot(bonusMetaOps.contains): _*) orElse
-        findMatching(examples, 6, problem.operators.filterNot(bonusMetaOps.contains): _*) orElse
-        findMatchingBonus(examples, problem.size, problem.operators, bonusSettings(problem.size))
+      //findMatching(examples, 5, problem.operators.filterNot(bonusMetaOps.contains): _*) orElse
+      //findMatching(examples, 6, problem.operators.filterNot(bonusMetaOps.contains): _*) orElse
+      findMatchingBonus(examples, problem.size, problem.operators, bigBonusSettings)
     else
       findMatching(examples, 5, problem.operators: _*) orElse
-        findMatching(examples, 8, problem.operators: _*) orElse (
-          findMatching(examples, 10, problem.operators.filterNot(bonusMetaOps.contains): _*))
+        findMatching(examples, 8, problem.operators: _*) orElse
+        findMatching(examples, 10, problem.operators.filterNot(bonusMetaOps.contains): _*) orElse
+        findMatching(examples, 12, problem.operators.filterNot(b ⇒ b == "fold" || bonusMetaOps.contains(b)): _*)
     //.orElse(
     //findMatchingBonus(examples, problem.size, problem.operators, settingsForTotal(problem.size)))
     //findMatching(examples, problem.size, problem.operators: _*)
@@ -226,6 +227,13 @@ object Synthesis {
   /*def tryBonusAgain(examples: Seq[Example], newExample: Example, lastResult: Program, targetSize: Int, ops: Seq[String]): Option[Program] = {
 
   }*/
+  val bigBonusSettings =
+    Settings(
+      configs = Seq((13, 13), (12, 13), (13, 12), (13, 11), (11, 13), (12, 12), (12, 11), (11, 12)),
+      offset = 4,
+      exampleFunc = input ⇒ CalculatedExample(input, v ⇒ (v & 1L) == 0),
+      programCons = (cond, thenB, elseB) ⇒ Program("x", If0(And(One, cond), thenB, elseB)))
+
   val smallBonusConfigs =
     Seq(
       (7, 7),
@@ -272,9 +280,9 @@ object Synthesis {
     programCons = (cond, thenB, elseB) ⇒ Program("x", If0(cond, thenB, elseB)))
 
   def findMatchingBonus(examples: Seq[Example], targetSize: Int, ops: Seq[String], settings: Settings = bonusSettings(25)): Option[Program] = {
-    val deadline = Deadline.now + 6.seconds
+    val deadline = Deadline.now + 10.seconds
     import settings._
-    if (examples.size > 7) None
+    if (examples.size > 10) None
 
     val cleanOps = bonusCleanOps(ops)
     val allExamplesSet = examples.toSet
@@ -566,7 +574,7 @@ object Synthesis {
 
     poss.map(numSolutionsForCombi).sum
   }
-  val bonusMetaOps = Set("bonus", "if0", "fold")
+  val bonusMetaOps = Set("bonus", "if0")
   def bonusCleanOps(ops: Seq[String]): Seq[String] =
     ops.filterNot(bonusMetaOps.contains)
 }
