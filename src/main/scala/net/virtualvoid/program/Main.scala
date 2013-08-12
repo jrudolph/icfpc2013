@@ -79,7 +79,7 @@ object Main {
     case Success((_, GuessResponse("win", _, _, _))) ⇒ trySeveral(rest, num)
     case Success((exs, GuessResponse("mismatch", Some(Seq(input, output, myOutput)), _, _))) ⇒
       if (exs.size < 12)
-        trySolvingOneProblem(next, num, examples = exs :+ PositiveExample(Client.parseLong(input.drop(2)), Client.parseLong(output.drop(2))))
+        trySolvingOneProblem(next, num, examples = exs :+ PositiveExample(parseLong(input.drop(2)), parseLong(output.drop(2))))
           .onComplete(onFinished(next, num, rest))
       else trySeveral(rest, num)
     case Failure(x) ⇒

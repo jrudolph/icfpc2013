@@ -519,11 +519,7 @@ object Synthesis {
           } yield Result(s3, nums1 * Math.max(nums2, nums3))
         else Nil
       case TFold ⇒
-        if (setup.remaining >= 4)
-          for {
-            Result(NumSetup(r1, _, _, _, _), nums1) ← nums(NumSetup(setup.remaining - 3, emptyColl, false, true))
-            Result(NumSetup(r2, _, _, _, _), nums2) ← nums(NumSetup(r1 + 1, OneVar, true, true))
-          } yield Result(NumSetup(r2, emptyColl, false, true), nums1 * nums2)
+        if (setup.remaining >= 5) nums(NumSetup(setup.remaining - 4, OneVar, true, true))
         else Nil
       case Fold ⇒
         if (setup.remaining >= 5)

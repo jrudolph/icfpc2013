@@ -12,12 +12,14 @@ package net.virtualvoid.program
           id  ::= [a-z][a-z_0-9]*
 */
 case class Program(param: String, body: Expr) {
-  override def toString = s"Program <${Printer.print(this)}>"
+  override def toString = s"<${Printer.print(this)}>"
 }
 object Program {
   implicit def apply(code: String) = Parser(code)
 }
-sealed trait Expr
+sealed trait Expr {
+  override def toString = Printer.print(this)
+}
 case object Zero extends Expr
 case object One extends Expr
 case class Ident(name: String) extends Expr

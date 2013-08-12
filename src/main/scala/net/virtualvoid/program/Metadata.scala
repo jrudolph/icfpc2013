@@ -21,4 +21,16 @@ object Metadata {
     case UnaryOpApply(op, arg)                    ⇒ 1 + size(arg)
     case BinOpApply(op, arg1, arg2)               ⇒ 1 + size(arg1) + size(arg2)
   }
+
+  def operators(p: Program): Seq[String] = operators(p.body).toSeq
+  def operators(e: Expr): Set[String] = e match {
+    case Zero                                     ⇒ Set.empty
+    case One                                      ⇒ Set.empty
+    case Ident(name)                              ⇒ Set.empty
+    case If0(target, thenBody, elseBody)          ⇒ Set("if0") ++ Seq(target, thenBody, elseBody).flatMap(operators)
+    case UnaryOpApply(op, arg)                    ⇒ Set(op.name) ++ operators(arg)
+    case BinOpApply(op, arg1, arg2)               ⇒ Set(op.name) ++ Seq(arg1, arg2).flatMap(operators)
+    case Fold(Ident("x"), Zero, "x", "y", body)   ⇒ Set("tfold") ++ operators(body)
+    case Fold(source, init, param1, param2, body) ⇒ Set("fold") ++ Seq(source, init, body).flatMap(operators)
+  }
 }

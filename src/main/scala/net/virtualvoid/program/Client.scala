@@ -11,8 +11,6 @@ import com.typesafe.config.ConfigFactory
 import spray.client.pipelining._
 import akka.util.Timeout
 import spray.httpx.marshalling.Marshaller
-import java.lang.Long.parseLong
-import java.math.BigInteger
 import spray.http.{ HttpResponse, HttpRequest }
 
 object Client {
@@ -78,8 +76,6 @@ object Client {
   val guessPipeline = network ~> unmarshal[GuessResponse]
   def deliverGuess(guess: Guess): Future[GuessResponse] =
     guessPipeline(req("guess", guess))
-
-  def parseLong(str: String): Long = new BigInteger(str, 16).longValue()
 
   def req[T: Marshaller](kind: String, t: T) =
     Post(path(kind), t)
